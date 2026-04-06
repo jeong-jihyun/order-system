@@ -1,0 +1,37 @@
+### ✅ 1. 정상 주문 생성 (200 OK 확인용)
+POST http://localhost:8080/api/orders
+Content-Type: application/json
+
+{
+  "customerName": "홍길동",
+  "productName": "노트북",
+  "quantity": 1,
+  "totalPrice": 1500000
+}
+
+---
+
+### ❌ 2. @Valid 유효성 검사 실패 → handleValidation() 브레이크포인트 진입
+### GlobalExceptionHandler.java 30번째 줄에 브레이크포인트 설정 후 실행
+POST http://localhost:8080/api/orders
+Content-Type: application/json
+
+{
+  "customerName": "",
+  "productName": "",
+  "quantity": 0,
+  "totalPrice": 0
+}
+
+---
+
+### ❌ 3. 존재하지 않는 주문 조회 → handleIllegalArgument() 브레이크포인트 진입
+### GlobalExceptionHandler.java 21번째 줄에 브레이크포인트 설정 후 실행
+GET http://localhost:8080/api/orders/99999
+
+---
+
+### ❌ 4. 잘못된 상태값 → handleException() 브레이크포인트 진입
+### GlobalExceptionHandler.java 41번째 줄에 브레이크포인트 설정 후 실행
+PATCH http://localhost:8080/api/orders/1/status?status=INVALID_STATUS
+
