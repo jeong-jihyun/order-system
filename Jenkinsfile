@@ -48,7 +48,7 @@ pipeline {
         stage('Docker Build') {
             steps {
                 sh """
-                    docker compose build spring-app frontend
+                    docker compose -p order-system build spring-app frontend
                 """
                 echo "✅ Docker 이미지 빌드 완료"
             }
@@ -58,7 +58,7 @@ pipeline {
         stage('Deploy') {
             steps {
                 sh """
-                    docker compose up -d --no-deps spring-app frontend
+                    docker compose -p order-system up -d --no-deps spring-app frontend
                 """
                 echo "✅ 배포 완료"
             }
