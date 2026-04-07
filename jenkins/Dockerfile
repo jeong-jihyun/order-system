@@ -20,7 +20,7 @@ RUN apt-get update -qq && \
         > /etc/apt/sources.list.d/docker.list && \
     # Node.js 20 LTS apt 저장소 등록
     curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
-    apt-get install -y --no-install-recommends docker-ce-cli nodejs && \
+    apt-get install -y --no-install-recommends docker-ce-cli docker-compose-plugin nodejs && \
     # 캐시 정리
     rm -rf /var/lib/apt/lists/*
 
