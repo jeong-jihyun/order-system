@@ -4,6 +4,8 @@
 
 ---
 
+
+
 ## 1. 구성한 아키텍처
 
 ```
@@ -23,7 +25,7 @@
 [Zookeeper :2181]        — Kafka 코디네이터
 ```
 
----
+
 
 ## 2. 핵심 소스 요약
 
@@ -49,6 +51,8 @@ com.order/
     └── consumer/OrderEventConsumer.java ← @KafkaListener → WebSocket
 ```
 
+
+
 ### Kafka 이벤트 흐름
 
 ```
@@ -58,6 +62,8 @@ POST /api/orders
     → OrderEventConsumer.consume()      ← Kafka 소비
     → SimpMessagingTemplate.convertAndSend("/topic/orders")  ← WebSocket 브로드캐스트
 ```
+
+
 
 ### React — 핵심 구조
 
@@ -76,7 +82,7 @@ src/
 └── types/order.ts
 ```
 
----
+
 
 ## 3. 실무에서 자주 쓰는 명령어
 
@@ -111,6 +117,8 @@ docker compose down -v
 docker compose up -d --build spring-app
 ```
 
+
+
 ### Git
 
 ```bash
@@ -121,7 +129,7 @@ git remote add origin https://github.com/...
 git push -u origin main
 ```
 
----
+
 
 ## 4. Day 1에서 해결한 트러블슈팅
 
@@ -134,7 +142,7 @@ git push -u origin main
 | `import.meta.env` TS 오류 | `vite-env.d.ts` 없음 | `/// <reference types="vite/client" />` 추가 |
 | Gradle 타임아웃 | 의존성 다운로드 지연 | `--no-watch-fs -x test` 옵션 추가 |
 
----
+
 
 ## 5. 개발 팁
 
@@ -149,29 +157,41 @@ MYSQL_USER=
 MYSQL_PASSWORD=
 ```
 
+
+
 ### docker-compose.yml 환경변수 참조
+
 ```yaml
 environment:
   MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}  ← .env 파일에서 읽음
 ```
 
+
+
 ### Spring Boot application.yml 환경변수 기본값 패턴
+
 ```yaml
 url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/orderdb}
 #                              ↑ Docker 환경     ↑ 로컬 개발 기본값
 ```
 
+
+
 ### Redis 캐시 전략
+
 ```java
 @Cacheable(value = "orders", key = "#id")   // 조회 시 캐시 저장
 @CacheEvict(value = "orders", key = "#id")  // 수정/삭제 시 캐시 제거
 ```
 
+
+
 ### Kafka 토픽 파티션
+
 - 파티션 수 = 동시에 처리할 수 있는 컨슈머 수
 - 운영에서는 최소 3개 권장 (고가용성)
 
----
+
 
 ## 6. 접속 주소
 
@@ -183,7 +203,7 @@ url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/orderdb}
 | MySQL | localhost:3306 |
 | Redis | localhost:6379 |
 
----
+
 
 ## 7-1. Kafka / Redis 상세 설명
 
@@ -191,7 +211,7 @@ url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/orderdb}
 
 **→ [day1_kafka_redis_setup.md](day1_kafka_redis_setup.md)**
 
----
+
 
 ## 7. 참고 자료
 

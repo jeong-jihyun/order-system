@@ -3,7 +3,7 @@
 > Jenkins가 GitHub에서 소스코드를 Pull하고 자동 빌드하도록 연결하는 단계별 실행 가이드  
 > 이 문서를 순서대로 따라가면 `git push` 시 Jenkins 자동 빌드가 됩니다.
 
----
+
 
 ## 현재 상황
 
@@ -16,7 +16,7 @@
 | Pipeline Item 생성 | ❌ 미완료 |
 | Git Repository 연결 | ❌ 미완료 |
 
----
+
 
 ## STEP 1. Docker CLI 설치 및 권한 확인
 
@@ -46,6 +46,8 @@ RUN apt-get update -qq && \
 USER jenkins
 ```
 
+
+
 ### 1-2. docker-compose.yml Jenkins 서비스 수정
 
 `image:` 방식 → `build:` 방식으로 변경:
@@ -58,6 +60,8 @@ jenkins:
   container_name: order-jenkins
   # ... 나머지 설정은 동일
 ```
+
+
 
 ### 1-3. Jenkins 재빌드 및 재시작
 
@@ -72,6 +76,8 @@ docker compose up -d jenkins
 > `jenkins-data` 볼륨은 유지되므로 기존 Admin 계정과 플러그인 설정은 그대로 남습니다.  
 > 빌드는 Docker 이미지 다운로드로 인해 3~5분 소요됩니다.
 
+
+
 ### 1-4. 확인
 
 ```powershell
@@ -80,7 +86,7 @@ docker compose exec jenkins docker ps
 
 **Exit Code 0 + 컨테이너 목록 출력 → STEP 1 완료**
 
----
+
 
 ## STEP 2. 추가 플러그인 설치
 
@@ -95,7 +101,7 @@ docker compose exec jenkins docker ps
 
 Jenkins 자동 재시작 후 다시 로그인합니다.
 
----
+
 
 ## STEP 3. GitHub Personal Access Token (PAT) 발급
 
@@ -117,7 +123,7 @@ Scopes:     ✅ repo (하위 항목 전부 자동 체크됨)
 5. 맨 아래 **"Generate token"** 클릭
 6. 생성된 토큰 복사 (`ghp_xxx...` 형태) — **이 화면을 벗어나면 다시 볼 수 없습니다!**
 
----
+
 
 ## STEP 4. Jenkins에 GitHub Credentials 등록
 
@@ -139,7 +145,7 @@ Description: GitHub PAT for order-system
 
 5. **"Create"** 클릭
 
----
+
 
 ## STEP 5. Pipeline Item 생성
 
@@ -147,11 +153,13 @@ Description: GitHub PAT for order-system
 2. 이름 입력: `order-system-pipeline`
 3. **"Pipeline"** 선택 → **"OK"**
 
----
+
 
 ## STEP 6. Pipeline 상세 설정 ← 핵심
 
 Item 생성 후 설정 페이지에서 아래 항목들을 입력합니다.
+
+
 
 ### [General] 섹션
 
@@ -160,6 +168,8 @@ Item 생성 후 설정 페이지에서 아래 항목들을 입력합니다.
 Project url: https://github.com/YOUR_USERNAME/order-system/
 ```
 
+
+
 ### [Build Triggers] 섹션
 
 ```
@@ -167,6 +177,8 @@ Project url: https://github.com/YOUR_USERNAME/order-system/
 ```
 
 > Webhook을 설정하지 않을 경우 수동 실행만 됩니다. 일단 체크해 두어도 무관합니다.
+
+
 
 ### [Pipeline] 섹션 ← 가장 중요
 
@@ -185,7 +197,7 @@ Script Path:       Jenkinsfile
 
 → 맨 아래 **"저장"** 클릭
 
----
+
 
 ## STEP 7. 수동 빌드로 테스트
 
@@ -213,7 +225,7 @@ BUILD SUCCESSFUL
 Finished: SUCCESS
 ```
 
----
+
 
 ## STEP 8. 빌드 결과 확인
 
@@ -227,12 +239,14 @@ Checkout → Backend Test → Frontend Test → Docker Build → Deploy → Heal
 > Blue Ocean UI로 시각화하려면:  
 > 플러그인에서 `Blue Ocean` 설치 → 파이프라인 페이지 → "Open Blue Ocean" 클릭
 
----
+
 
 ## STEP 9. GitHub Webhook 설정 (자동 빌드)
 
 `git push` 시 Jenkins가 자동으로 빌드를 시작하게 합니다.  
 로컬 PC에서 실행 중이므로 ngrok으로 외부 URL을 만들어야 합니다.
+
+
 
 ### ngrok 설치 및 실행
 
@@ -249,6 +263,8 @@ ngrok http 8090
 ```
 Forwarding  https://abc123.ngrok-free.app -> http://localhost:8090
 ```
+
+
 
 ### GitHub Webhook 등록
 
@@ -267,7 +283,7 @@ Active:       ✅ 체크
 등록 후 GitHub에서 test ping을 보내면 Jenkins가 응답합니다.  
 이후 `git push` 할 때마다 Jenkins 빌드가 자동 시작됩니다.
 
----
+
 
 ## STEP 10. Jenkinsfile 수정이 필요한 경우
 
@@ -294,7 +310,7 @@ stage('Health Check') {
 docker network inspect order-system_order-network
 ```
 
----
+
 
 ## 빌드 실패 시 트러블슈팅
 
@@ -309,7 +325,7 @@ docker network inspect order-system_order-network
 | `Branch not found` | Branch 이름 불일치 | `*/main` vs `*/master` 확인 |
 | Console Output에서 Checkout 후 멈춤 | Git shallow clone 시간 초과 | 네트워크 확인 또는 토큰 재확인 |
 
----
+
 
 ## 완료 체크리스트
 

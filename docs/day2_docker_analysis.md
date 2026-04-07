@@ -4,6 +4,8 @@
 
 ---
 
+
+
 ## 1. docker-compose.yml 핵심 개념
 
 ### 이미지 버전 고정
@@ -13,12 +15,15 @@ image: mysql:8.0      ✅ 권장
 image: mysql:latest   ❌ 비권장
 ```
 
+
+
 **이유 — 재현성(Reproducibility)**
+
 - `latest`는 시간이 지나면 다른 버전을 가리킬 수 있음
 - 팀원 A는 MySQL 8.0, 팀원 B는 MySQL 9.0이 설치될 수 있음
 - 버전 고정 = 모든 환경에서 동일한 동작 보장
 
----
+
 
 ### depends_on vs condition: service_healthy
 
@@ -33,6 +38,8 @@ depends_on:
     condition: service_healthy
 ```
 
+
+
 **차이점:**
 
 | | `depends_on` (단순) | `condition: service_healthy` |
@@ -41,7 +48,10 @@ depends_on:
 | spring-app 시작 시점 | mysql 프로세스 시작 직후 | mysql healthcheck 통과 후 |
 | 문제 가능성 | DB 초기화 중 접속 시도 → 크래시 | 없음 |
 
+
+
 **흐름:**
+
 ```
 mysql 컨테이너 시작
     → healthcheck 실행 (mysqladmin ping)
@@ -50,7 +60,7 @@ mysql 컨테이너 시작
     → 그제서야 spring-app 시작
 ```
 
----
+
 
 ### healthcheck
 
@@ -66,7 +76,7 @@ mysql:
 
 **역할:** 컨테이너가 정상인지 **주기적으로 검사**하는 방법을 정의
 
----
+
 
 ### networks
 
@@ -86,6 +96,8 @@ services:
 
 **역할:** 같은 네트워크의 컨테이너끼리 **서비스 이름으로 통신** 가능
 
+
+
 ```yaml
 # application.yml
 url: jdbc:mysql://mysql:3306/orderdb
@@ -96,7 +108,7 @@ Docker 내부 DNS가 `mysql` → 해당 컨테이너 IP 자동 변환
 
 **없으면?** 각 컨테이너가 격리되어 이름으로 서로를 찾지 못함 → 접속 실패
 
----
+
 
 ### 3가지 핵심 설정 요약
 
@@ -107,7 +119,7 @@ Docker 내부 DNS가 `mysql` → 해당 컨테이너 IP 자동 변환
 | `healthcheck` | 컨테이너 정상 여부를 **주기적으로 검사**하는 방법 정의 |
 | `networks` | 컨테이너끼리 **이름으로 찾을 수 있게** 해주는 내부 DNS |
 
----
+
 
 ## 2. 멀티스테이지 빌드 (Dockerfile)
 
@@ -123,7 +135,7 @@ COPY --from=별명 ...   ← Stage 1에서 결과물만 가져옴
 
 **Stage 1의 빌드 도구, 소스코드, 의존성 캐시 → 최종 이미지에 포함되지 않음**
 
----
+
 
 ### 백엔드 Dockerfile 분석
 
@@ -151,7 +163,7 @@ Stage 1만 사용: ~500MB (Gradle + JDK + 소스 + jar 전부)
 멀티스테이지:    ~80MB  (JRE + jar만)
 ```
 
----
+
 
 ### 프론트엔드 Dockerfile 분석
 
@@ -177,7 +189,7 @@ CMD ["nginx", "-g", "daemon off;"]
 **React 앱의 핵심:**  
 빌드하면 HTML/CSS/JS 파일만 남음 → Node.js 필요 없음 → Nginx로 충분
 
----
+
 
 ### COPY 순서가 중요한 이유 — Docker 레이어 캐시
 
@@ -196,6 +208,8 @@ COPY . .               ← 소스코드 변경
 RUN npm run build      ← 빌드만 실행 (30초)
 ```
 
+
+
 **빌드 시간 비교:**
 
 | 상황 | 비효율 방식 | 캐시 최적화 방식 |
@@ -203,7 +217,7 @@ RUN npm run build      ← 빌드만 실행 (30초)
 | 소스 코드 수정 후 빌드 | 3~5분 | **30초** |
 | package.json 수정 후 빌드 | 3~5분 | 3~5분 |
 
----
+
 
 ## 3. 실무에서 자주 쓰는 명령어
 
@@ -226,6 +240,8 @@ docker buildx du
 docker builder prune
 ```
 
+
+
 ### Docker 로그/디버깅
 
 ```bash
@@ -246,6 +262,8 @@ docker compose exec redis redis-cli
 docker stats
 ```
 
+
+
 ### Dockerfile 빌드 단독 테스트
 
 ```bash
@@ -257,7 +275,7 @@ docker build -t my-frontend ./frontend
 docker run -p 8080:8080 my-backend
 ```
 
----
+
 
 ## 4. 개발 팁
 
@@ -266,6 +284,8 @@ docker run -p 8080:8080 my-backend
 - `ubuntu` 기반보다 이미지 크기 대폭 감소
 - 단, 일부 라이브러리(glibc 등) 호환성 문제가 생길 수 있음
 - 문제 발생 시 `eclipse-temurin:17-jre` (slim 버전)으로 교체
+
+
 
 ### `npm ci` vs `npm install`
 
@@ -276,6 +296,8 @@ docker run -p 8080:8080 my-backend
 | 속도 | 빠름 (lock 파일 그대로 설치) | 느림 (의존성 해석) |
 | `node_modules` | 항상 새로 설치 | 있으면 업데이트 |
 
+
+
 ### `gradle bootJar` 주요 옵션
 
 ```bash
@@ -284,6 +306,8 @@ docker run -p 8080:8080 my-backend
 -x test          # 테스트 스킵 (빌드 속도 향상)
 --quiet          # 로그 최소화
 ```
+
+
 
 ### `.dockerignore` 필수 항목
 
@@ -301,7 +325,7 @@ dist/
 
 → 빌드 컨텍스트 크기를 144MB → 1MB 수준으로 감소 가능
 
----
+
 
 ## 5. 참고 자료
 

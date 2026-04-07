@@ -4,6 +4,8 @@
 
 ---
 
+
+
 ## 1. 전체 구조에서 Kafka / Redis 위치
 
 ```
@@ -26,7 +28,7 @@
  orderRepository.findById()    → MySQL 조회 후 Redis에 저장
 ```
 
----
+
 
 ## 2. Kafka 설정
 
@@ -51,6 +53,8 @@ spring:
       value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
 ```
 
+
+
 **핵심 포인트:**
 
 | 항목 | 설명 |
@@ -60,7 +64,7 @@ spring:
 | `JsonDeserializer` | Kafka 메시지(bytes)를 Java 객체로 역직렬화 |
 | `trusted.packages` | 보안상 역직렬화 허용할 패키지 명시 필수 |
 
----
+
 
 ### KafkaConfig.java — 토픽 자동 생성
 
@@ -80,6 +84,8 @@ public class KafkaConfig {
 }
 ```
 
+
+
 **파티션(Partition)이란?**
 
 ```
@@ -94,6 +100,8 @@ order-events 토픽
 - 파티션 3 + 컨슈머 1 → 한 컨슈머가 3개 파티션 전부 처리
 - 파티션 3 + 컨슈머 3 → 각 컨슈머가 파티션 1개씩 처리
 
+
+
 **replicas(복제본):**
 
 | 환경 | 권장 replica |
@@ -101,14 +109,17 @@ order-events 토픽
 | 개발 | 1 (Kafka 브로커 1개) |
 | 운영 | 3 (브로커 1개 장애나도 데이터 유지) |
 
+
+
 **토픽 이름을 상수로 관리하는 이유:**
+
 ```java
 public static final String ORDER_TOPIC = "order-events";
 // → Producer, Consumer 모두 KafkaConfig.ORDER_TOPIC 참조
 // → 오타 방지, 변경 시 한 곳만 수정
 ```
 
----
+
 
 ### OrderEvent.java — Kafka 이벤트 DTO
 
@@ -138,6 +149,8 @@ public class OrderEvent {
 }
 ```
 
+
+
 **왜 Order 엔티티를 직접 쓰지 않고 OrderEvent를 별도로 만드나?**
 
 | 이유 | 설명 |
@@ -146,14 +159,17 @@ public class OrderEvent {
 | **의존성 분리** | Kafka 이벤트 구조가 DB 스키마와 독립적으로 변경 가능 |
 | **이벤트 전용 필드** | `eventTime` 같은 이벤트 시점 정보 추가 가능 |
 
+
+
 **`@NoArgsConstructor` 가 필수인 이유:**
+
 ```
 Kafka 메시지(JSON bytes) → Jackson이 역직렬화
 → 기본 생성자로 객체 생성 후 필드 주입
 → @NoArgsConstructor 없으면 역직렬화 실패!
 ```
 
----
+
 
 ### OrderEventProducer.java — 이벤트 발행
 
@@ -184,7 +200,10 @@ public class OrderEventProducer {
 }
 ```
 
+
+
 **파티션 키(`orderId`)를 지정하는 이유:**
+
 ```
 같은 orderId의 이벤트 → 항상 같은 파티션으로 전송
 → 같은 주문의 이벤트 순서 보장 (파티션 내 순서는 보장됨)
@@ -193,7 +212,10 @@ public class OrderEventProducer {
 → 같은 주문의 이벤트가 다른 파티션으로 가서 순서 뒤바뀔 수 있음
 ```
 
+
+
 **`whenComplete` — 비동기 콜백:**
+
 ```java
 kafkaTemplate.send(...)        // 즉시 반환 (비동기)
     .whenComplete((result, ex) -> {
@@ -204,7 +226,7 @@ kafkaTemplate.send(...)        // 즉시 반환 (비동기)
 // → 메인 스레드는 블로킹 없이 계속 진행
 ```
 
----
+
 
 ### OrderEventConsumer.java — 이벤트 수신
 
@@ -228,7 +250,10 @@ public class OrderEventConsumer {
 }
 ```
 
+
+
 **컨슈머 그룹의 역할:**
+
 ```
 컨슈머 그룹 "order-group"
 ├── 컨슈머 인스턴스 A → Partition 0 전담
@@ -238,7 +263,10 @@ public class OrderEventConsumer {
 → 스케일 아웃 시 컨슈머만 추가하면 자동으로 파티션 재분배됨
 ```
 
+
+
 **오프셋(Offset)이란:**
+
 ```
 Partition 0: [msg1:offset=0] [msg2:offset=1] [msg3:offset=2]
                                                       ↑
@@ -246,9 +274,11 @@ Partition 0: [msg1:offset=0] [msg2:offset=1] [msg3:offset=2]
 → 컨슈머가 재시작해도 이어서 읽기 가능
 ```
 
----
+
 
 ## 3. Redis 설정
+
+
 
 ### application.yml — Redis 연결 설정
 
@@ -263,7 +293,7 @@ spring:
     type: redis   # Spring Cache 추상화 → Redis 사용
 ```
 
----
+
 
 ### RedisConfig.java — 직렬화 설정
 
@@ -305,7 +335,10 @@ public class RedisConfig {
 }
 ```
 
+
+
 **직렬화가 왜 필요한가?**
+
 ```
 Java 객체 (OrderResponse)
     ↓ 직렬화 (Serialization)
@@ -313,6 +346,8 @@ Redis 저장 (bytes / JSON 문자열)
     ↓ 역직렬화 (Deserialization)
 Java 객체 (OrderResponse)
 ```
+
+
 
 **직렬화 방식 비교:**
 
@@ -324,7 +359,7 @@ Java 객체 (OrderResponse)
 
 → **실무에서는 JSON 직렬화 권장** (디버깅, 다른 언어 서비스 접근 가능)
 
----
+
 
 ### OrderService.java — @Cacheable / @CacheEvict
 
@@ -345,20 +380,26 @@ public OrderResponse updateOrderStatus(Long id, OrderStatus status) {
 }
 ```
 
+
+
 **캐시 키 구조:**
+
 ```
 Redis에 저장되는 키: "orders::1", "orders::2", ...
                       ↑ value명  ↑ id 값
 ```
 
+
+
 **TTL(Time To Live):**
+
 ```
 30분 후 자동 삭제 → DB와 Redis 데이터 불일치 최대 30분
 → 실시간성보다 성능이 중요한 데이터에 적합
 → 실시간성이 중요하면 @CacheEvict 적극 활용
 ```
 
----
+
 
 ## 4. Kafka vs Redis — 역할 비교
 
@@ -370,7 +411,7 @@ Redis에 저장되는 키: "orders::1", "orders::2", ...
 | **주요 사용처** | 서비스 간 이벤트 전달, 로그 수집 | 캐싱, 세션, 실시간 랭킹 |
 | **이 프로젝트에서** | 주문 생성 이벤트 → WebSocket 전달 | 단건 주문 조회 캐싱 |
 
----
+
 
 ## 5. 실무에서 자주 쓰는 명령어
 
@@ -393,6 +434,8 @@ kafka-console-consumer --bootstrap-server localhost:9092 \
 # 토픽 삭제
 kafka-topics --bootstrap-server localhost:9092 --delete --topic order-events
 ```
+
+
 
 ### Redis CLI
 
@@ -419,7 +462,7 @@ FLUSHALL
 TYPE "orders::1"
 ```
 
----
+
 
 ## 6. 개발 팁
 
@@ -434,6 +477,8 @@ kafkaTemplate.send(topic, String.valueOf(event.getOrderId()), event);
 kafkaTemplate.send(topic, event);  // ❌ 순서 보장 안 됨
 ```
 
+
+
 ### Redis 캐시 무효화 전략
 
 ```java
@@ -447,6 +492,8 @@ kafkaTemplate.send(topic, event);  // ❌ 순서 보장 안 됨
 @CachePut(value = "orders", key = "#result.id")
 // → 기존 캐시를 지우지 않고 업데이트된 값으로 교체
 ```
+
+
 
 ### Kafka 컨슈머 에러 처리
 
@@ -463,6 +510,8 @@ public void consume(OrderEvent event) {
 }
 ```
 
+
+
 ### `@EnableCaching` 위치
 
 ```java
@@ -472,7 +521,7 @@ public void consume(OrderEvent event) {
 public class RedisConfig { ... }
 ```
 
----
+
 
 ## 7. 참고 자료
 

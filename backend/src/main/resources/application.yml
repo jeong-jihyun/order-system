@@ -58,3 +58,12 @@ logging:
   level:
     com.order: DEBUG
     org.springframework.kafka: WARN
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: always
