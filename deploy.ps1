@@ -1,9 +1,10 @@
 ﻿# deploy.ps1 — order-system 배포 스크립트
 # 사용법: .\deploy.ps1 [옵션]
-#   .\deploy.ps1           — 기본 배포 (변경된 이미지만 재빌드)
-#   .\deploy.ps1 -All      — 전체 재빌드 배포
+#   .\deploy.ps1           — 기본 배포 (앱 컨테이너 시작, Jenkins 포함)
+#   .\deploy.ps1 -All      — 앱 컨테이너 전체 재빌드 (Jenkins 제외)
 #   .\deploy.ps1 -Backend  — 백엔드만 재빌드 배포
 #   .\deploy.ps1 -Frontend — 프론트엔드만 재빌드 배포
+#   .\deploy.ps1 -Jenkins  — Jenkins만 재빌드 및 재시작 (Dockerfile 변경 시)
 #   .\deploy.ps1 -Status   — 컨테이너 상태만 확인
 #   .\deploy.ps1 -Down     — 전체 종료
 #   .\deploy.ps1 -Reset    — 전체 종료 + 볼륨 삭제 (DB 초기화)
@@ -12,6 +13,7 @@ param(
     [switch]$All,
     [switch]$Backend,
     [switch]$Frontend,
+    [switch]$Jenkins,
     [switch]$Status,
     [switch]$Down,
     [switch]$Reset
@@ -191,13 +193,32 @@ if ($Frontend) {
     exit 0
 }
 
-# 전체 재빌드 배포
-if ($All) {
-    Write-Step "전체 컨테이너 종료 중..."
-    docker compose down
+# Jenkins만 재빌드 및 재시작 (Dockerfile 변경 시에만 사용)
+if ($Jenkins) {
+    Write-Header "Jenkins 재빌드 및 재시작"
+    Write-Step "Jenkins 컨테이너 종료 중..."
+    docker compose stop jenkins
+    docker compose rm -f jenkins
 
-    Write-Step "전체 이미지 재빌드 및 시작 중..."
-    docker compose up -d --build
+    Write-Step "Jenkins 이미지 재빌드 중... (3~5분 소요)"
+    docker compose build jenkins
+
+    Write-Step "Jenkins 시작 중..."
+    docker compose up -d jenkins
+
+    Write-Success "Jenkins 재시작 완료"
+    Write-Info "접속: $JENKINS_URL"
+    exit 0
+}
+
+# 전체 재빌드 배포 (앱 컨테이너만, Jenkins 제외)
+if ($All) {
+    Write-Step "앱 컨테이너 종료 중 (Jenkins 유지)..."
+    docker compose stop mysql redis zookeeper kafka kafdrop spring-app frontend
+    docker compose rm -f mysql redis zookeeper kafka kafdrop spring-app frontend
+
+    Write-Step "앱 이미지 재빌드 및 시작 중..."
+    docker compose up -d --build mysql redis zookeeper kafka kafdrop spring-app frontend
 
     Fix-Kafka
     Wait-Backend
