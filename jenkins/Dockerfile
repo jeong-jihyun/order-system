@@ -2,7 +2,7 @@ FROM jenkins/jenkins:lts-jdk17
 
 USER root
 
-# Docker CLI 설치
+# Docker CLI + Node.js 설치
 RUN apt-get update -qq && \
     apt-get install -y --no-install-recommends \
         ca-certificates \
@@ -18,9 +18,9 @@ RUN apt-get update -qq && \
         https://download.docker.com/linux/debian \
         $(. /etc/os-release && echo "$VERSION_CODENAME") stable" \
         > /etc/apt/sources.list.d/docker.list && \
-    apt-get update -qq && \
-    # Docker CLI만 설치 (dockerd는 불필요, host의 docker.sock 사용)
-    apt-get install -y --no-install-recommends docker-ce-cli && \
+    # Node.js 20 LTS apt 저장소 등록
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    apt-get install -y --no-install-recommends docker-ce-cli nodejs && \
     # 캐시 정리
     rm -rf /var/lib/apt/lists/*
 
