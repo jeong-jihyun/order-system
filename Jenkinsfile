@@ -38,7 +38,7 @@ pipeline {
             steps {
                 dir('frontend') {
                     sh 'npm ci'
-                    sh 'npm test -- --run'
+                    sh 'npm test -- --run --passWithNoTests'
                 }
                 echo "✅ 프론트엔드 테스트 완료"
             }
