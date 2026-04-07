@@ -59,6 +59,17 @@ public class OrderService {
     }
 
     /**
+     * PENDING 주문만 조회
+     * [Week 1 Stream 실습] findAll() → stream().filter().map().collect()
+     */
+    public List<OrderResponse> getPendingOrders() {
+        return orderRepository.findAll().stream()
+                .filter(order -> order.getStatus() == OrderStatus.PENDING)
+                .map(OrderResponse::from)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * 주문 생성
      * [Week 2 Kafka 실습] 저장 후 order-events 토픽으로 이벤트 발행
      */

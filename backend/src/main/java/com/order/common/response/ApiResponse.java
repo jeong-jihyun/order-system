@@ -1,5 +1,7 @@
 package com.order.common.response;
 
+import java.util.List;
+
 import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Getter;
 
@@ -42,5 +44,11 @@ public class ApiResponse<T> {
     // ── 실패 팩토리 메서드 ────────────────────────────────────
     public static <T> ApiResponse<T> error(String message) {
         return new ApiResponse<>(false, message, null);
+    }
+
+    public static <T extends Number> double sum(List<T> list){
+        return list.stream()
+                   .mapToDouble(Number::doubleValue)
+                   .sum();
     }
 }

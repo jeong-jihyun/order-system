@@ -12,11 +12,13 @@
 3. [아키텍처 설계 방향](#3-아키텍처-설계-방향)
 4. [프로젝트 구조](#4-프로젝트-구조)
 5. [환경 구축 (Docker)](#5-환경-구축-docker)
-6. [백엔드 실행 (로컬)](#6-백엔드-실행-로컬)
-7. [프론트엔드 실행 (로컬)](#7-프론트엔드-실행-로컬)
-8. [API 명세](#8-api-명세)
-9. [학습 로드맵 (4주 플랜)](#9-학습-로드맵-4주-플랜)
-10. [변경 관리 (Change Log)](#10-변경-관리-change-log)
+6. [Jenkins CI/CD 파이프라인](#6-jenkins-cicd-파이프라인)
+7. [로컬 수정사항 컨테이너 반영 방법](#7-로컬-수정사항-컨테이너-반영-방법)
+8. [백엔드 실행 (로컬)](#8-백엔드-실행-로컬)
+9. [프론트엔드 실행 (로컬)](#9-프론트엔드-실행-로컬)
+10. [API 명세](#10-api-명세)
+11. [학습 로드맵 (4주 플랜)](#11-학습-로드맵-4주-플랜)
+12. [변경 관리 (Change Log)](#12-변경-관리-change-log)
 
 ---
 
@@ -213,6 +215,7 @@ docker compose down -v
 | 프론트엔드 | http://localhost:3000 | 주문 목록 / 등록 화면 |
 | Swagger UI | http://localhost:8080/swagger-ui.html | API 테스트 |
 | Kafdrop | http://localhost:9000 | Kafka 토픽/메시지 확인 |
+| Jenkins | http://localhost:8090 | CI/CD 파이프라인 관리 |
 
 ### 로컬 개발 환경 (Docker 없이)
 
@@ -227,7 +230,172 @@ docker compose up -d mysql redis kafka zookeeper kafdrop
 
 ---
 
-## 6. 백엔드 실행 (로컬)
+## 6. Jenkins CI/CD 파이프라인
+
+### Jenkins 컨테이너 시작
+
+```powershell
+cd d:\order-system
+
+# Jenkins 포함 전체 실행
+docker compose up -d
+
+# Jenkins 초기 Admin 비밀번호 확인
+docker compose logs jenkins | findstr "Please use the following password"
+```
+
+### Jenkins 초기 설정 (최초 1회)
+
+**1단계 — http://localhost:8090 접속**
+
+**2단계 — Admin 비밀번호 입력**
+```powershell
+# 비밀번호 직접 확인
+docker compose exec jenkins cat /var/jenkins_home/secrets/initialAdminPassword
+```
+
+**3단계 — 플러그인 설치**
+- "Install suggested plugins" 선택
+
+**4단계 — 필수 추가 플러그인 설치**  
+Jenkins 관리 → Plugin Manager → Available plugins에서 설치:
+- `Docker Pipeline`
+- `Pipeline`
+- `Git`
+
+**5단계 — Admin 계정 생성 후 완료**
+
+---
+
+### 파이프라인 생성
+
+**1.** Jenkins 메인 → "새 Item" 클릭  
+**2.** 이름 입력 (예: `order-system`) → "Pipeline" 선택  
+**3.** Pipeline 설정:
+```
+Definition: Pipeline script from SCM
+SCM: Git
+Repository URL: https://github.com/YOUR_USERNAME/order-system
+Branch: */main
+Script Path: Jenkinsfile
+```
+**4.** 저장 → "지금 빌드" 클릭
+
+---
+
+### Jenkinsfile 파이프라인 구조
+
+```
+Checkout → Backend Test → Frontend Test → Docker Build → Deploy → Health Check
+```
+
+| 스테이지 | 내용 |
+|---------|------|
+| `Checkout` | GitHub에서 소스코드 가져오기 |
+| `Backend Test` | `./gradlew test` 실행 + JUnit 리포트 |
+| `Frontend Test` | `npm test -- --run` 실행 |
+| `Docker Build` | spring-app, frontend 이미지 재빌드 |
+| `Deploy` | `--no-deps` 로 해당 서비스만 재시작 |
+| `Health Check` | `/actuator/health` 5회 재시도 확인 |
+
+---
+
+### GitHub Webhook 자동 빌드 설정 (선택)
+
+**push 시 자동으로 파이프라인이 실행되도록 설정:**
+
+```
+GitHub 저장소 → Settings → Webhooks → Add webhook
+Payload URL: http://YOUR_IP:8090/github-webhook/
+Content type: application/json
+Events: Just the push event
+```
+
+> 로컬 환경에서 외부 접근이 필요하면 `ngrok`으로 임시 터널 사용:
+> ```powershell
+> ngrok http 8090
+> ```
+
+---
+
+## 7. 로컬 수정사항 컨테이너 반영 방법
+
+> 코드를 수정한 후 Docker 컨테이너에 반영하는 방법입니다.
+
+### 백엔드 (Spring Boot) 코드 수정 시
+
+```powershell
+cd d:\order-system
+
+# spring-app 컨테이너만 이미지 재빌드 후 재시작
+docker compose up -d --build spring-app
+
+# 로그 확인 (Started OrderSystemApplication 메시지 확인)
+docker compose logs -f spring-app
+```
+
+> **소요 시간:** 최초 빌드는 3~5분, 이후 캐시 활용으로 약 1분
+
+### 프론트엔드 (React) 코드 수정 시
+
+```powershell
+cd d:\order-system
+
+# frontend 컨테이너만 재빌드 후 재시작
+docker compose up -d --build frontend
+
+# 로그 확인
+docker compose logs -f frontend
+```
+
+> **소요 시간:** 약 30초~1분 (node_modules 캐시 활용)
+
+### 설정 파일(application.yml, .env) 수정 시
+
+```powershell
+# 환경변수가 바뀌면 컨테이너를 완전히 재생성해야 반영됨
+docker compose up -d --force-recreate spring-app
+```
+
+### docker-compose.yml 수정 시
+
+```powershell
+# 전체 컨테이너 재생성
+docker compose up -d
+```
+
+### 빠른 참고표
+
+| 수정한 파일 | 반영 명령어 |
+|------------|------------|
+| `backend/src/**/*.java` | `docker compose up -d --build spring-app` |
+| `backend/build.gradle.kts` | `docker compose up -d --build spring-app` |
+| `frontend/src/**/*.tsx` | `docker compose up -d --build frontend` |
+| `frontend/package.json` | `docker compose up -d --build frontend` |
+| `backend/src/main/resources/application.yml` | `docker compose up -d --force-recreate spring-app` |
+| `.env` | `docker compose up -d --force-recreate` |
+| `docker-compose.yml` | `docker compose up -d` |
+
+### 매일 시작 전 컨테이너 상태 확인 루틴
+
+```powershell
+cd d:\order-system
+
+# 상태 확인
+docker compose ps
+
+# 꺼진 컨테이너 있으면 시작
+docker compose start
+
+# kafka NodeExists 오류 발생 시
+docker compose rm -f kafka
+docker compose up -d kafka
+docker compose up -d spring-app
+```
+
+---
+
+## 8. 백엔드 실행 (로컬)
 
 ```powershell
 cd d:\order-system\backend
@@ -241,7 +409,7 @@ cd d:\order-system\backend
 
 ---
 
-## 7. 프론트엔드 실행 (로컬)
+## 9. 프론트엔드 실행 (로컬)
 
 ```powershell
 cd d:\order-system\frontend
@@ -263,7 +431,7 @@ npm run build
 
 ---
 
-## 8. API 명세
+## 10. API 명세
 
 > 상세 명세는 Swagger UI: http://localhost:8080/swagger-ui.html
 
@@ -316,7 +484,7 @@ POST /api/orders
 
 ---
 
-## 9. 학습 로드맵 (4주 플랜)
+## 11. 학습 로드맵 (4주 플랜)
 
 | 주차 | 핵심 주제 | 상태 |
 |------|-----------|------|
@@ -327,7 +495,7 @@ POST /api/orders
 
 ---
 
-## 10. 변경 관리 (Change Log)
+## 12. 변경 관리 (Change Log)
 
 > 규칙: 학습하면서 코드를 수정/추가할 때마다 아래에 기록합니다.
 > 형식: `날짜 | 구분 | 파일 | 내용`

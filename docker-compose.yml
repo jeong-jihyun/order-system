@@ -120,12 +120,36 @@ services:
     networks:
       - order-network
 
+  # ─────────────────────────────────────────────
+  # CI/CD
+  # ─────────────────────────────────────────────
+  # Jenkins 관리 UI — http://localhost:8090
+  # 초기 Admin 비밀번호: docker compose logs jenkins
+  jenkins:
+    build:
+      context: ./jenkins
+      dockerfile: Dockerfile
+    container_name: order-jenkins
+    privileged: true
+    user: root
+    ports:
+      - "8090:8080"    # Jenkins UI
+      - "50000:50000"  # Jenkins Agent 통신 포트
+    volumes:
+      - jenkins-data:/var/jenkins_home          # Jenkins 설정 영속화
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker 소켓 마운트 (DinD)
+    environment:
+      JAVA_OPTS: "-Djenkins.install.runSetupWizard=true"
+    networks:
+      - order-network
+
 # ─────────────────────────────────────────────
 # Volumes & Networks
 # ─────────────────────────────────────────────
 volumes:
   mysql-data:
   redis-data:
+  jenkins-data:
 
 networks:
   order-network:
