@@ -1,10 +1,7 @@
 import axios from 'axios'
 
-/**
- * Axios 기본 인스턴스
- * - baseURL: vite.config.ts proxy를 통해 /api → Spring :8080/api
- * - 인터셉터로 공통 에러 처리
- */
+const TOKEN_KEY = 'auth_token'
+
 export const apiClient = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || '',
   headers: {
@@ -13,10 +10,23 @@ export const apiClient = axios.create({
   timeout: 10_000,
 })
 
-// 응답 인터셉터 — API 레벨 오류 처리
+// 요청 인터셉터 — localStorage 토큰을 Authorization 헤더에 자동 주입
+apiClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`
+  }
+  return config
+})
+
+// 응답 인터셉터 — API 레벨 오류 처리 + 401 시 로그인 페이지로 이동
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
+    if (error.response?.status === 401) {
+      localStorage.removeItem(TOKEN_KEY)
+      window.location.href = '/login'
+    }
     const message =
       error.response?.data?.message ?? error.message ?? '알 수 없는 오류가 발생했습니다.'
     return Promise.reject(new Error(message))

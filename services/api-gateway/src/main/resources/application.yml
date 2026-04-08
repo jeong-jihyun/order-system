@@ -68,6 +68,27 @@ spring:
           predicates:
             - Path=/ws/**
 
+        - id: settlement-service
+          uri: http://exchange-settlement-service:8085
+          predicates:
+            - Path=/api/v1/settlements/**
+          filters:
+            - JwtAuthentication
+            - name: CircuitBreaker
+              args:
+                name: settlement-service-cb
+                fallbackUri: forward:/fallback
+
+        - id: trading-engine
+          uri: http://exchange-trading-engine:8084
+          predicates:
+            - Path=/api/v1/orderbook/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: trading-engine-cb
+                fallbackUri: forward:/fallback
+
 server:
   port: 8080
 
@@ -88,6 +109,14 @@ resilience4j:
         failureRateThreshold: 50
         waitDurationInOpenState: 10s
       account-service-cb:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+      settlement-service-cb:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+      trading-engine-cb:
         slidingWindowSize: 10
         failureRateThreshold: 50
         waitDurationInOpenState: 10s
