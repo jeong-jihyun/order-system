@@ -1,16 +1,25 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { accountApi, AccountResponse } from '@/api/accountApi'
+import { accountApi, AccountResponse, CreateAccountRequest } from '@/api/accountApi'
 import LoadingSpinner from '@/components/common/LoadingSpinner'
 import ErrorFallback from '@/components/common/ErrorFallback'
 
 type Action = 'deposit' | 'withdraw'
+
+const ACCOUNT_TYPES: CreateAccountRequest['accountType'][] = ['CASH', 'STOCK', 'DERIVATIVE']
+const ACCOUNT_TYPE_LABEL: Record<string, string> = {
+  CASH: '현금 계좌',
+  STOCK: '주식 계좌',
+  DERIVATIVE: '파생 계좌',
+}
 
 const AccountPage = () => {
   const queryClient = useQueryClient()
   const [selected, setSelected] = useState<{ account: AccountResponse; action: Action } | null>(null)
   const [amount, setAmount] = useState('')
   const [actionError, setActionError] = useState('')
+  const [showCreateModal, setShowCreateModal] = useState(false)
+  const [newAccountType, setNewAccountType] = useState<CreateAccountRequest['accountType']>('CASH')
 
   const { data: accounts, isLoading, isError, error } = useQuery({
     queryKey: ['accounts', 'me'],
@@ -31,6 +40,14 @@ const AccountPage = () => {
     onError: (err: Error) => setActionError(err.message),
   })
 
+  const createMutation = useMutation({
+    mutationFn: () => accountApi.create(newAccountType),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['accounts', 'me'] })
+      setShowCreateModal(false)
+    },
+  })
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!selected) return
@@ -47,7 +64,15 @@ const AccountPage = () => {
 
   return (
     <div>
-      <h2 style={styles.pageTitle}>내 계좌</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+        <h2 style={styles.pageTitle}>내 계좌</h2>
+        <button
+          style={styles.addBtn}
+          onClick={() => { setNewAccountType('CASH'); setShowCreateModal(true) }}
+        >
+          + 계좌 추가
+        </button>
+      </div>
 
       {accounts?.length === 0 && (
         <div style={styles.empty}>등록된 계좌가 없습니다.</div>
@@ -130,6 +155,52 @@ const AccountPage = () => {
           </div>
         </div>
       )}
+      {/* 계좌 추가 모달 */}
+      {showCreateModal && (
+        <div style={styles.overlay} onClick={() => setShowCreateModal(false)}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <h3 style={styles.modalTitle}>🏦 새 계좌 추가</h3>
+            <p style={{ color: '#555', fontSize: 13, marginBottom: 16 }}>계좌 유형을 선택하세요</p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+              {ACCOUNT_TYPES.map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => setNewAccountType(type)}
+                  style={{
+                    padding: '12px 16px',
+                    borderRadius: 6,
+                    border: `2px solid ${newAccountType === type ? '#1a73e8' : '#e0e0e0'}`,
+                    background: newAccountType === type ? '#e8f0fe' : '#fff',
+                    color: newAccountType === type ? '#1a73e8' : '#444',
+                    fontWeight: newAccountType === type ? 700 : 400,
+                    textAlign: 'left',
+                    cursor: 'pointer',
+                    fontSize: 14,
+                  }}
+                >
+                  {ACCOUNT_TYPE_LABEL[type]}
+                </button>
+              ))}
+            </div>
+            {createMutation.isError && (
+              <div style={{ ...styles.errorBox, marginBottom: 12 }}>
+                ⚠️ {(createMutation.error as Error).message}
+              </div>
+            )}
+            <div style={styles.modalBtns}>
+              <button style={styles.cancelBtn} onClick={() => setShowCreateModal(false)}>취소</button>
+              <button
+                style={{ ...styles.confirmBtn, background: '#1a73e8', opacity: createMutation.isPending ? 0.7 : 1 }}
+                disabled={createMutation.isPending}
+                onClick={() => createMutation.mutate()}
+              >
+                {createMutation.isPending ? '생성 중...' : '계좌 생성'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -146,7 +217,17 @@ const BalanceRow = ({ label, value, color = '#222', bold = false }: {
 )
 
 const styles: Record<string, React.CSSProperties> = {
-  pageTitle: { fontSize: 20, fontWeight: 700, marginBottom: 20 },
+  pageTitle: { fontSize: 20, fontWeight: 700, margin: 0 },
+  addBtn: {
+    padding: '8px 18px',
+    background: '#1a73e8',
+    color: '#fff',
+    border: 'none',
+    borderRadius: 6,
+    fontWeight: 600,
+    fontSize: 14,
+    cursor: 'pointer',
+  },
   empty: { color: '#888', padding: 40, textAlign: 'center' },
   grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 },
   card: {

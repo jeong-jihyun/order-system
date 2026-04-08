@@ -3,11 +3,13 @@ package com.exchange.account.domain.account.controller;
 import com.exchange.account.common.response.ApiResponse;
 import com.exchange.account.domain.account.dto.AccountResponse;
 import com.exchange.account.domain.account.dto.BalanceRequest;
+import com.exchange.account.domain.account.dto.CreateAccountRequest;
 import com.exchange.account.domain.account.service.AccountService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -26,11 +28,18 @@ public class AccountController {
     @Operation(summary = "내 계좌 목록 조회")
     @GetMapping("/me")
     public ResponseEntity<ApiResponse<List<AccountResponse>>> getMyAccounts(
+            @RequestHeader("X-User-Name") String username) {
+        return ResponseEntity.ok(ApiResponse.success(accountService.getMyAccounts(username)));
+    }
+
+    @Operation(summary = "계좌 추가 생성")
+    @PostMapping
+    public ResponseEntity<ApiResponse<AccountResponse>> createAccount(
             @RequestHeader("X-User-Name") String username,
-            @RequestHeader(value = "X-User-Role", defaultValue = "USER") String role) {
-        // Gateway에서 X-User-Name 헤더로 전달된 userId 기반 조회
-        // Phase 3에서는 username → userId 조회 구현 예정
-        return ResponseEntity.ok(ApiResponse.success(List.of()));
+            @Valid @RequestBody CreateAccountRequest request) {
+        AccountResponse created = accountService.createAccount(username, request.getAccountType());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("계좌가 생성되었습니다", created));
     }
 
     @Operation(summary = "계좌 단건 조회")

@@ -2,13 +2,17 @@ package com.exchange.account.domain.account.service;
 
 import com.exchange.account.domain.account.dto.AccountResponse;
 import com.exchange.account.domain.account.dto.BalanceRequest;
+import com.exchange.account.domain.account.entity.Account;
+import com.exchange.account.domain.account.entity.AccountType;
 import com.exchange.account.domain.account.repository.AccountRepository;
+import com.exchange.account.domain.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -17,12 +21,28 @@ import java.util.List;
 public class AccountService {
 
     private final AccountRepository accountRepository;
+    private final UserRepository userRepository;
 
     @Transactional(readOnly = true)
-    public List<AccountResponse> getMyAccounts(Long userId) {
-        return accountRepository.findByUserId(userId).stream()
+    public List<AccountResponse> getMyAccounts(String username) {
+        var user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + username));
+        return accountRepository.findByUserId(user.getId()).stream()
                 .map(AccountResponse::from)
                 .toList();
+    }
+
+    public AccountResponse createAccount(String username, AccountType accountType) {
+        var user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + username));
+        Account account = Account.builder()
+                .user(user)
+                .accountNumber("ACC" + UUID.randomUUID().toString().replace("-", "").substring(0, 9).toUpperCase())
+                .accountType(accountType)
+                .build();
+        Account saved = accountRepository.save(account);
+        log.info("[계좌생성] userId={}, type={}, number={}", user.getId(), accountType, saved.getAccountNumber());
+        return AccountResponse.from(saved);
     }
 
     @Transactional(readOnly = true)

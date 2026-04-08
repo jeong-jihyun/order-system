@@ -15,6 +15,10 @@ export interface BalanceRequest {
   amount: number
 }
 
+export interface CreateAccountRequest {
+  accountType: 'CASH' | 'STOCK' | 'DERIVATIVE'
+}
+
 interface ApiResponse<T> {
   success: boolean
   message: string
@@ -47,6 +51,11 @@ export const accountApi = {
       `${BASE}/${id}/withdraw`,
       { amount },
     )
+    return res.data.data
+  },
+
+  create: async (accountType: CreateAccountRequest['accountType']): Promise<AccountResponse> => {
+    const res = await apiClient.post<ApiResponse<AccountResponse>>(BASE, { accountType })
     return res.data.data
   },
 }
