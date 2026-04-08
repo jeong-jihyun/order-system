@@ -32,8 +32,11 @@ COPY shared shared
 RUN chmod +x gradlew && \
     ./gradlew :services:${SERVICE_DIR}:bootJar -x test --no-daemon
 
-# 빌드된 JAR 경로를 표준화
-RUN cp services/${SERVICE_DIR}/build/libs/${JAR_NAME}*.jar app.jar
+# 빌드된 JAR 복사 — plain.jar 제외하고 실행 가능한 fat jar만 선택
+RUN find services/${SERVICE_DIR}/build/libs/ \
+      -name "${JAR_NAME}*.jar" \
+      ! -name "*-plain.jar" \
+      -exec cp {} app.jar \;
 
 # ────────────────────────────────────────
 # Stage 2: Runtime

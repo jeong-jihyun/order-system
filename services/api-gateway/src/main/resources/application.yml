@@ -9,7 +9,6 @@ spring:
 
   cloud:
     gateway:
-      # 전역 CORS
       globalcors:
         cors-configurations:
           '[/**]':
@@ -18,19 +17,17 @@ spring:
             allowedHeaders: "*"
             maxAge: 3600
 
-      # 기본 필터 (모든 라우트 적용)
       default-filters:
         - name: RequestRateLimiter
           args:
-            redis-rate-limiter.replenishRate: 10    # 초당 10 요청 허용
-            redis-rate-limiter.burstCapacity: 20    # 순간 최대 20
+            redis-rate-limiter.replenishRate: 10
+            redis-rate-limiter.burstCapacity: 20
             redis-rate-limiter.requestedTokens: 1
             key-resolver: "#{@ipKeyResolver}"
 
       routes:
-        # ── account-service (인증 불필요 — public)
         - id: auth-public
-          uri: http://localhost:8082
+          uri: http://exchange-account-service:8082
           predicates:
             - Path=/api/v1/auth/**
           filters:
@@ -39,9 +36,8 @@ spring:
                 name: account-service-cb
                 fallbackUri: forward:/fallback
 
-        # ── account-service (인증 필요)
         - id: account-service
-          uri: http://localhost:8082
+          uri: http://exchange-account-service:8082
           predicates:
             - Path=/api/v1/accounts/**
           filters:
@@ -51,9 +47,8 @@ spring:
                 name: account-service-cb
                 fallbackUri: forward:/fallback
 
-        # ── order-service (인증 필요)
         - id: order-service
-          uri: http://localhost:8081
+          uri: http://exchange-order-service:8081
           predicates:
             - Path=/api/v1/orders/**
           filters:
@@ -63,15 +58,13 @@ spring:
                 name: order-service-cb
                 fallbackUri: forward:/fallback
 
-        # ── market-data-service (인증 불필요 — 공개 시세)
         - id: market-data-service
-          uri: http://localhost:8083
+          uri: http://exchange-market-data:8083
           predicates:
             - Path=/api/v1/market/**
 
-        # ── WebSocket (시세 스트림)
         - id: market-ws
-          uri: ws://localhost:8083
+          uri: ws://exchange-market-data:8083
           predicates:
             - Path=/ws/**
 
@@ -87,7 +80,6 @@ management:
     health:
       show-details: always
 
-# Circuit Breaker 설정
 resilience4j:
   circuitbreaker:
     instances:
