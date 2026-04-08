@@ -2,6 +2,79 @@ spring:
   application:
     name: api-gateway
 
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+  cloud:
+    gateway:
+      # 전역 CORS
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: "*"
+            allowedMethods: [GET, POST, PUT, PATCH, DELETE, OPTIONS]
+            allowedHeaders: "*"
+            maxAge: 3600
+
+      # 기본 필터 (모든 라우트 적용)
+      default-filters:
+        - name: RequestRateLimiter
+          args:
+            redis-rate-limiter.replenishRate: 10    # 초당 10 요청 허용
+            redis-rate-limiter.burstCapacity: 20    # 순간 최대 20
+            redis-rate-limiter.requestedTokens: 1
+            key-resolver: "#{@ipKeyResolver}"
+
+      routes:
+        # ── account-service (인증 불필요 — public)
+        - id: auth-public
+          uri: http://localhost:8082
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: account-service-cb
+                fallbackUri: forward:/fallback
+
+        # ── account-service (인증 필요)
+        - id: account-service
+          uri: http://localhost:8082
+          predicates:
+            - Path=/api/v1/accounts/**
+          filters:
+            - JwtAuthentication
+            - name: CircuitBreaker
+              args:
+                name: account-service-cb
+                fallbackUri: forward:/fallback
+
+        # ── order-service (인증 필요)
+        - id: order-service
+          uri: http://localhost:8081
+          predicates:
+            - Path=/api/v1/orders/**
+          filters:
+            - JwtAuthentication
+            - name: CircuitBreaker
+              args:
+                name: order-service-cb
+                fallbackUri: forward:/fallback
+
+        # ── market-data-service (인증 불필요 — 공개 시세)
+        - id: market-data-service
+          uri: http://localhost:8083
+          predicates:
+            - Path=/api/v1/market/**
+
+        # ── WebSocket (시세 스트림)
+        - id: market-ws
+          uri: ws://localhost:8083
+          predicates:
+            - Path=/ws/**
+
 server:
   port: 8080
 
@@ -9,17 +82,28 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        include: health,info,metrics,gateway
   endpoint:
     health:
       show-details: always
 
-springdoc:
-  swagger-ui:
-    path: /swagger-ui.html
-  api-docs:
-    path: /api-docs
+# Circuit Breaker 설정
+resilience4j:
+  circuitbreaker:
+    instances:
+      order-service-cb:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+      account-service-cb:
+        slidingWindowSize: 10
+        failureRateThreshold: 50
+        waitDurationInOpenState: 10s
+
+jwt:
+  secret: ${JWT_SECRET:order-system-jwt-secret-key-must-be-at-least-256-bits-long}
 
 logging:
   level:
-    com.exchange: DEBUG
+    com.exchange.gateway: DEBUG
+    org.springframework.cloud.gateway: WARN

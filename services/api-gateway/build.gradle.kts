@@ -19,19 +19,32 @@ dependencyManagement {
 }
 
 dependencies {
-    implementation("org.springframework.boot:spring-boot-starter-web")
+    // Spring Cloud Gateway (WebFlux 기반 — spring-boot-starter-web 사용 불가)
+    implementation("org.springframework.cloud:spring-cloud-starter-gateway")
+
+    // Redis (Redis Reactive — Rate Limiter용)
+    implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive")
+
+    // Actuator
     implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("org.springframework.boot:spring-boot-starter-validation")
-    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.3.0")
+
+    // JWT 검증
+    implementation("com.auth0:java-jwt:4.4.0")
+
+    // Circuit Breaker
+    implementation("org.springframework.cloud:spring-cloud-starter-circuitbreaker-reactor-resilience4j")
+
+    // Jackson (WebFlux에서 JSON)
+    implementation("com.fasterxml.jackson.core:jackson-databind")
+    implementation("com.fasterxml.jackson.datatype:jackson-datatype-jsr310")
+
+    // Lombok
     compileOnly("org.projectlombok:lombok")
     annotationProcessor("org.projectlombok:lombok")
-    // shared common-lib (로컬 의존)
-    // implementation(project(":shared:common-lib"))
-    implementation("org.springframework.cloud:spring-cloud-starter-gateway")
-    implementation("org.springframework.boot:spring-boot-starter-data-redis-reactive")
-    implementation("com.auth0:java-jwt:4.4.0")
-    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
+
+    // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("io.projectreactor:reactor-test")
 }
 
 tasks.withType<Test> { useJUnitPlatform() }
