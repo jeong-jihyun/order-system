@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { marketApi, TickerDto, OhlcvDto } from '@/api/marketApi'
+import { marketApi, TickerDto } from '@/api/marketApi'
 import { SYMBOLS, SYMBOL_MAP } from '@/constants/symbols'
-import { createChart, IChartApi, ISeriesApi, CandlestickData, HistogramData, Time, ColorType } from 'lightweight-charts'
 import Box from '@mui/material/Box'
 import Paper from '@mui/material/Paper'
 import Typography from '@mui/material/Typography'
@@ -25,28 +24,77 @@ const fmtPct = (v: number | null | undefined) => {
   return isNaN(n) ? '—' : `${Math.abs(n).toFixed(2)}%`
 }
 
-const INTERVALS = ['1m', '5m', '15m', '1h', '1d']
+// TradingView 인터뱸 매핑
+const INTERVALS: { label: string; tv: string }[] = [
+  { label: '1m',  tv: '1'  },
+  { label: '5m',  tv: '5'  },
+  { label: '15m', tv: '15' },
+  { label: '1h',  tv: '60' },
+  { label: '1d',  tv: 'D'  },
+  { label: '1w',  tv: 'W'  },
+]
+
+// TradingView Advanced Chart 위젯 컴포넌트
+const TradingViewChart = ({ symbol, interval }: { symbol: string; interval: string }) => {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    container.innerHTML = ''
+
+    const widgetDiv = document.createElement('div')
+    widgetDiv.className = 'tradingview-widget-container__widget'
+    widgetDiv.style.height = '100%'
+    widgetDiv.style.width = '100%'
+    container.appendChild(widgetDiv)
+
+    const script = document.createElement('script')
+    script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
+    script.type = 'text/javascript'
+    script.async = true
+    script.textContent = JSON.stringify({
+      autosize: true,
+      symbol: `NASDAQ:${symbol}`,
+      interval,
+      timezone: 'Asia/Seoul',
+      theme: 'dark',
+      style: '1',
+      locale: 'ko',
+      withdateranges: true,
+      allow_symbol_change: false,
+      save_image: false,
+      hide_volume: false,
+      support_host: 'https://www.tradingview.com',
+    })
+    container.appendChild(script)
+
+    return () => {
+      container.innerHTML = ''
+    }
+  }, [symbol, interval])
+
+  return (
+    <Box
+      ref={containerRef}
+      className="tradingview-widget-container"
+      sx={{ width: '100%', height: 520 }}
+    />
+  )
+}
 
 const MarketPage = () => {
   const [symbol, setSymbol] = useState('AAPL')
-  const [interval, setInterval] = useState('1m')
+  const [interval, setInterval] = useState('D')
   const [liveTicker, setLiveTicker] = useState<TickerDto | null>(null)
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
   const wsRef = useRef<WebSocket | null>(null)
-  const chartContainerRef = useRef<HTMLDivElement | null>(null)
-  const chartRef = useRef<IChartApi | null>(null)
-  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
-  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
 
   const { data: ticker, isLoading: tickerLoading } = useQuery({
     queryKey: ['ticker', symbol],
     queryFn: () => marketApi.getTicker(symbol),
     refetchInterval: 5000,
-  })
-
-  const { data: ohlcvList } = useQuery({
-    queryKey: ['ohlcv', symbol, interval],
-    queryFn: () => marketApi.getOhlcv(symbol, interval, 100),
   })
 
   // WebSocket
@@ -88,93 +136,6 @@ const MarketPage = () => {
 
     return () => { wsRef.current?.close() }
   }, [symbol])
-
-  // Chart 생성 & 업데이트
-  useEffect(() => {
-    if (!chartContainerRef.current) return
-
-    // 기존 차트 제거
-    if (chartRef.current) {
-      chartRef.current.remove()
-      chartRef.current = null
-    }
-
-    const chart = createChart(chartContainerRef.current, {
-      width: chartContainerRef.current.clientWidth,
-      height: 400,
-      layout: {
-        background: { type: ColorType.Solid, color: '#131722' },
-        textColor: '#787b86',
-        fontFamily: '"Noto Sans KR", Roboto, sans-serif',
-        fontSize: 11,
-      },
-      grid: {
-        vertLines: { color: '#1e222d' },
-        horzLines: { color: '#1e222d' },
-      },
-      crosshair: {
-        vertLine: { color: '#363a45', width: 1, style: 2, labelBackgroundColor: '#2a2e39' },
-        horzLine: { color: '#363a45', width: 1, style: 2, labelBackgroundColor: '#2a2e39' },
-      },
-      rightPriceScale: { borderColor: '#2a2e39' },
-      timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false },
-    })
-    chartRef.current = chart
-
-    const candleSeries = chart.addCandlestickSeries({
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-      borderDownColor: '#ef5350',
-      borderUpColor: '#26a69a',
-      wickDownColor: '#ef5350',
-      wickUpColor: '#26a69a',
-    })
-    candleSeriesRef.current = candleSeries
-
-    const volumeSeries = chart.addHistogramSeries({
-      priceFormat: { type: 'volume' },
-      priceScaleId: '',
-    })
-    volumeSeries.priceScale().applyOptions({
-      scaleMargins: { top: 0.8, bottom: 0 },
-    })
-    volumeSeriesRef.current = volumeSeries
-
-    // 데이터 설정
-    if (ohlcvList && ohlcvList.length > 0) {
-      const candles: CandlestickData<Time>[] = ohlcvList.map((d: OhlcvDto) => ({
-        time: (new Date(d.openTime).getTime() / 1000) as Time,
-        open: Number(d.open),
-        high: Number(d.high),
-        low: Number(d.low),
-        close: Number(d.close),
-      }))
-
-      const volumes: HistogramData<Time>[] = ohlcvList.map((d: OhlcvDto) => ({
-        time: (new Date(d.openTime).getTime() / 1000) as Time,
-        value: Number(d.volume) || 0,
-        color: Number(d.close) >= Number(d.open) ? 'rgba(38,166,154,0.3)' : 'rgba(239,83,80,0.3)',
-      }))
-
-      candleSeries.setData(candles)
-      volumeSeries.setData(volumes)
-      chart.timeScale().fitContent()
-    }
-
-    // resize
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        chart.applyOptions({ width: entry.contentRect.width })
-      }
-    })
-    observer.observe(chartContainerRef.current)
-
-    return () => {
-      observer.disconnect()
-      chart.remove()
-      chartRef.current = null
-    }
-  }, [ohlcvList, symbol, interval])
 
   const displayTicker = liveTicker ?? ticker
   const priceNum = displayTicker?.price != null ? Number(displayTicker.price) : null
@@ -242,17 +203,19 @@ const MarketPage = () => {
         <Paper sx={{ p: 4, mb: 2, textAlign: 'center', color: '#787b86' }}>시세 데이터가 없습니다.</Paper>
       )}
 
-      {/* 차트 */}
-      <Paper sx={{ p: 0, mb: 2, overflow: 'hidden', bgcolor: '#131722' }}>
+      {/* TradingView 차트 */}
+      <Paper sx={{ mb: 2, overflow: 'hidden', bgcolor: '#131722' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.2, borderBottom: '1px solid #2a2e39' }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#d1d4dc' }}>캔들 차트</Typography>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#d1d4dc' }}>
+            TradingView — {symbol} / {SYMBOL_MAP[symbol]?.name}
+          </Typography>
           <ToggleButtonGroup exclusive size="small" value={interval} onChange={(_, v) => v && setInterval(v)}>
             {INTERVALS.map((iv) => (
-              <ToggleButton key={iv} value={iv} sx={{ px: 1, fontSize: 11 }}>{iv}</ToggleButton>
+              <ToggleButton key={iv.tv} value={iv.tv} sx={{ px: 1.2, fontSize: 11 }}>{iv.label}</ToggleButton>
             ))}
           </ToggleButtonGroup>
         </Box>
-        <Box ref={chartContainerRef} sx={{ width: '100%', height: 400 }} />
+        <TradingViewChart symbol={symbol} interval={interval} />
       </Paper>
     </Box>
   )
