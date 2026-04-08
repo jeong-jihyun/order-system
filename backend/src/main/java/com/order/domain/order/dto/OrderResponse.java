@@ -2,6 +2,7 @@ package com.order.domain.order.dto;
 
 import com.order.domain.order.entity.Order;
 import com.order.domain.order.entity.OrderStatus;
+import com.order.domain.order.entity.OrderType;
 import lombok.Builder;
 import lombok.Getter;
 
@@ -17,11 +18,11 @@ public class OrderResponse {
     private String productName;
     private Integer quantity;
     private BigDecimal totalPrice;
+    private OrderType orderType;
     private OrderStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    /** Entity → DTO 변환 (정적 팩토리 메서드) */
     public static OrderResponse from(Order order) {
         return OrderResponse.builder()
                 .id(order.getId())
@@ -29,6 +30,7 @@ public class OrderResponse {
                 .productName(order.getProductName())
                 .quantity(order.getQuantity())
                 .totalPrice(order.getTotalPrice())
+                .orderType(order.getOrderType())
                 .status(order.getStatus())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())

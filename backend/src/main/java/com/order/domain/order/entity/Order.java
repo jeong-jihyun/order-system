@@ -9,7 +9,9 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
- * [Week 1 Stream 실습] findAll().stream().map(...) 형태로 DTO 변환에 활용
+ * 주문 엔티티
+ * - OrderType 필드 추가 (Phase 0)
+ * - updateStatus()에 State Machine 검증 적용
  */
 @Entity
 @Table(name = "orders")
@@ -37,6 +39,11 @@ public class Order {
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
+    @Builder.Default
+    private OrderType orderType = OrderType.LIMIT;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
     private OrderStatus status;
 
     @CreationTimestamp
@@ -46,8 +53,15 @@ public class Order {
     @UpdateTimestamp
     private LocalDateTime updatedAt;
 
-    // ── 도메인 메서드 ─────────────────────────────────────────
+    /**
+     * 상태 변경 - State Machine 패턴으로 유효하지 않은 전이 차단
+     */
     public void updateStatus(OrderStatus newStatus) {
+        if (!this.status.canTransitionTo(newStatus)) {
+            throw new IllegalStateException(
+                String.format("'%s' 상태에서 '%s'로 전이할 수 없습니다.", this.status, newStatus)
+            );
+        }
         this.status = newStatus;
     }
 }

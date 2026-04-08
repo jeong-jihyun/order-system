@@ -96,7 +96,7 @@ function Wait-Backend {
     $retry = 0
     while ($retry -lt $maxRetry) {
         try {
-            $response = Invoke-WebRequest -Uri $HEALTH_URL -TimeoutSec 3 -ErrorAction Stop
+            $response = Invoke-WebRequest -Uri $HEALTH_URL -TimeoutSec 3 -ErrorAction Stop -UseBasicParsing
             if ($response.StatusCode -eq 200) {
                 Write-Success "백엔드 정상 응답 확인"
                 return
