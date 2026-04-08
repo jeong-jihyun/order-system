@@ -60,9 +60,13 @@ const OrderListPage = () => {
       headerName: '구분',
       width: 80,
       cellRenderer: (p: ICellRendererParams<Order>) => {
-        if (!p.value) return '—'
+        if (!p.value) return <span>—</span>
         const isBuy = p.value === 'BUY'
-        return `<span style="color:${isBuy ? '#26a69a' : '#ef5350'};font-weight:700">${isBuy ? '매수' : '매도'}</span>`
+        return (
+          <span style={{ color: isBuy ? '#26a69a' : '#ef5350', fontWeight: 700 }}>
+            {isBuy ? '매수' : '매도'}
+          </span>
+        )
       },
     },
     {

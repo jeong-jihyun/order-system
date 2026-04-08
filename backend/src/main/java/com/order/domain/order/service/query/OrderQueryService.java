@@ -70,8 +70,7 @@ public class OrderQueryService {
         return orderQueryPort.findAll().stream()
                 .collect(Collectors.groupingBy(
                         order -> order.getStatus(),
-                        Collectors.counting()
-                ));
+                        Collectors.counting()));
     }
 
     /** [Stream 심화] PENDING 주문 금액 내림차순 정렬 */

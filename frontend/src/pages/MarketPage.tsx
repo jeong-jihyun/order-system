@@ -42,7 +42,11 @@ const TradingViewChart = ({ symbol, interval }: { symbol: string; interval: stri
     const container = containerRef.current
     if (!container) return
 
+    // 뷰포트에서 상단 UI 영역(네비바 64 + 종목선택 64 + 시세카드 130 + 차트헤더 50 + 여백 112)을 뺀 높이
+    const chartHeight = Math.max(400, window.innerHeight - 420)
+
     container.innerHTML = ''
+    container.style.height = `${chartHeight}px`
 
     const widgetDiv = document.createElement('div')
     widgetDiv.className = 'tradingview-widget-container__widget'
@@ -55,7 +59,9 @@ const TradingViewChart = ({ symbol, interval }: { symbol: string; interval: stri
     script.type = 'text/javascript'
     script.async = true
     script.textContent = JSON.stringify({
-      autosize: true,
+      autosize: false,
+      width: '100%',
+      height: chartHeight,
       symbol: `NASDAQ:${symbol}`,
       interval,
       timezone: 'Asia/Seoul',
@@ -79,7 +85,7 @@ const TradingViewChart = ({ symbol, interval }: { symbol: string; interval: stri
     <Box
       ref={containerRef}
       className="tradingview-widget-container"
-      sx={{ width: '100%', height: 520 }}
+      style={{ width: '100%' }}
     />
   )
 }

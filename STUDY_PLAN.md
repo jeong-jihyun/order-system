@@ -83,33 +83,31 @@
 
 ---
 
-### 🔲 Day 4 (04/09)
+### ✅ Day 4 (04/08, 완료)
 
 **주제: Java Stream 직접 작성**
 
 | 시간 | 내용 |
 |------|------|
-| 1교시 (1h) | `OrderService.getAllOrders()` Stream 코드 분석 + map/filter/collect 원리 |
+| 1교시 (1h) | `OrderQueryService.getAllOrders()` Stream 코드 분석 + map/filter/collect 원리 |
 | 2교시 (1h) | Stream 메서드 직접 작성 실습 |
 
-**실습 과제 (직접 작성 후 OrderService에 추가):**
+**직접 작성한 코드 (`OrderQueryService.java`):**
+- `getOrdersTotalAmount()` — `reduce(BigDecimal.ZERO, BigDecimal::add)` 합산
+- `getOrderCountByStatus()` — `groupingBy + counting()` 상태별 집계
+- `getPendingOrdersSortedByPrice()` — `filter + sorted + map` 내림차순 정렬
 
-```java
-// 과제 1: 전체 주문 총 금액 합산
-public BigDecimal getOrdersTotalAmount() { ... }
+**오늘의 핵심 포인트:**
+- `Stream.map()` ≠ `Map<K,V>` 자료구조 — 혼동하지 않기
+- `b.compareTo(a)` = 내림차순, `a.compareTo(b)` = 오름차순
+- `.toList()` (Java 16+, 불변) vs `.collect(Collectors.toList())` (가변)
+- 람다 → 메서드 레퍼런스 축약 가능 (`order -> order.getStatus()` → `Order::getStatus`)
 
-// 과제 2: 상태별 주문 건수 집계
-public Map<OrderStatus, Long> getOrderCountByStatus() { ... }
-
-// 과제 3: PENDING 상태만 필터링 후 금액 내림차순 정렬
-public List<OrderResponse> getPendingOrdersSortedByPrice() { ... }
-```
-
-실행 확인: Swagger에서 API 호출 후 결과 검증
+**학습 노트:** [docs/day4_stream.md](docs/day4_stream.md)
 
 ---
 
-### 🔲 Day 5 (04/10)
+### ✅ Day 5 (04/08, 완료)
 
 **주제: GlobalExceptionHandler + @Valid 연결 이해**
 
@@ -118,9 +116,19 @@ public List<OrderResponse> getPendingOrdersSortedByPrice() { ... }
 | 1교시 (1h) | `@Valid`, `@NotBlank`, `MethodArgumentNotValidException` 흐름 분석 |
 | 2교시 (1h) | Stream으로 오류 메시지 수집하는 코드 직접 작성 |
 
-**실습 과제:**
-- Swagger에서 잘못된 값으로 요청 → 어떤 오류 메시지가 나오는지 확인
-- Stream의 `collect(Collectors.joining(", "))` 직접 작성
+**직접 작성한 코드 (`GlobalExceptionHandler.java`):**
+```java
+.map(error -> error.getField() + ": " + error.getDefaultMessage())
+.collect(Collectors.joining(" | "));
+```
+
+**오늘의 핵심 포인트:**
+- `@NotNull` / `@NotEmpty` / `@NotBlank` 차이 — `@NotBlank`이 가장 엄격
+- `MethodArgumentNotValidException` → `getBindingResult().getFieldErrors()` → `List<FieldError>`
+- 두 값 조합 시 람다 사용 (`error.getField() + ": " + error.getDefaultMessage()`)
+- 단순 메서드 하나만 호출할 때 메서드 레퍼런스, 두 값 이상 조합할 때 람다
+
+**학습 노트:** [docs/day5_validation.md](docs/day5_validation.md)
 
 ---
 
@@ -192,8 +200,8 @@ public List<OrderResponse> getPendingOrdersSortedByPrice() { ... }
 
 | 주차 | 완료 | 전체 | 진행률 |
 |------|------|------|--------|
-| Week 1 | 1 | 7 | 14% |
+| Week 1 | 5 | 7 | 71% |
 | Week 2 | 0 | 7 | 0% |
 | Week 3 | 0 | 7 | 0% |
 | Week 4 | 0 | 7 | 0% |
-| **전체** | **1** | **28** | **4%** |
+| **전체** | **5** | **28** | **18%** |
