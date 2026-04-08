@@ -8,11 +8,15 @@
 # ─────────────────────────────────────────────
 # 백엔드 (Gradle / Java)
 # ─────────────────────────────────────────────
+.gradle/
 backend/.gradle/
 backend/build/
 backend/out/
 backend/*.class
 backend/bin/
+services/*/build/
+shared/*/build/
+build/
 
 # ─────────────────────────────────────────────
 # 프론트엔드 (Node.js)
