@@ -1,11 +1,27 @@
+// ============================================================
+// Order Exchange System — Jenkinsfile
+// 멀티모듈 마이크로서비스 CI/CD 파이프라인
+//
+// Pipeline:
+//   Checkout → 전체 빌드/테스트 → Docker 이미지 병렬 빌드
+//           → 인프라 기동 → 6개 서비스 병렬 배포 → 헬스체크
+// ============================================================
 pipeline {
     agent any
 
     environment {
-        // Docker Hub 또는 로컬 레지스트리 설정
-        BACKEND_IMAGE  = "order-system-spring-app"
-        FRONTEND_IMAGE = "order-system-frontend"
-        COMPOSE_FILE   = "docker-compose.yml"
+        REGISTRY      = "${env.DOCKER_REGISTRY ?: 'localhost:5000'}"
+        PROJECT       = "exchange"
+        COMPOSE_FILE  = "docker-compose.yml"
+        COMPOSE_P     = "exchange"
+        // 배포 대상 서비스 목록
+        SERVICES      = "api-gateway order-service account-service market-data-service trading-engine settlement-service"
+    }
+
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 30, unit: 'MINUTES')
+        disableConcurrentBuilds()
     }
 
     stages {
@@ -14,78 +30,264 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                echo "✅ 소스코드 체크아웃 완료"
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        script: 'git rev-parse --short HEAD',
+                        returnStdout: true
+                    ).trim()
+                    env.IMAGE_TAG = "${env.BRANCH_NAME}-${env.GIT_COMMIT_SHORT}"
+                }
+                echo "체크아웃 완료 — branch=${env.BRANCH_NAME}, commit=${env.GIT_COMMIT_SHORT}"
             }
         }
 
-        // ② 백엔드 테스트
-        stage('Backend Test') {
-            steps {
-                dir('backend') {
-                    sh './gradlew test --no-daemon --no-watch-fs'
+        // ② 전체 멀티모듈 컴파일 + 테스트 (병렬)
+        stage('Build & Test') {
+            parallel {
+
+                stage('order-service') {
+                    steps {
+                        sh './gradlew :services:order-service:test --no-daemon -x :backend:test'
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: 'services/order-service/build/test-results/**/*.xml'
+                        }
+                    }
                 }
-                echo "✅ 백엔드 테스트 완료"
-            }
-            post {
-                always {
-                    junit allowEmptyResults: true, testResults: 'backend/build/test-results/test/*.xml'
+
+                stage('account-service') {
+                    steps {
+                        sh './gradlew :services:account-service:test --no-daemon -x :backend:test'
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: 'services/account-service/build/test-results/**/*.xml'
+                        }
+                    }
+                }
+
+                stage('market-data-service') {
+                    steps {
+                        sh './gradlew :services:market-data-service:test --no-daemon -x :backend:test'
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: 'services/market-data-service/build/test-results/**/*.xml'
+                        }
+                    }
+                }
+
+                stage('trading-engine') {
+                    steps {
+                        sh './gradlew :services:trading-engine:test --no-daemon -x :backend:test'
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: 'services/trading-engine/build/test-results/**/*.xml'
+                        }
+                    }
+                }
+
+                stage('settlement-service') {
+                    steps {
+                        sh './gradlew :services:settlement-service:test --no-daemon -x :backend:test'
+                    }
+                    post {
+                        always {
+                            junit allowEmptyResults: true,
+                                  testResults: 'services/settlement-service/build/test-results/**/*.xml'
+                        }
+                    }
                 }
             }
         }
 
-        // ③ 프론트엔드 테스트
-        stage('Frontend Test') {
-            steps {
-                dir('frontend') {
-                    sh 'npm ci'
-                    sh 'npm test -- --run --passWithNoTests'
-                }
-                echo "✅ 프론트엔드 테스트 완료"
-            }
-        }
-
-        // ④ Docker 이미지 빌드
+        // ③ Docker 이미지 병렬 빌드
         stage('Docker Build') {
-            steps {
-                sh """
-                    docker compose -p order-system build spring-app frontend
-                """
-                echo "✅ Docker 이미지 빌드 완료"
+            parallel {
+
+                stage('build: api-gateway') {
+                    steps {
+                        sh """
+                            docker build \
+                              --build-arg SERVICE_DIR=api-gateway \
+                              --build-arg JAR_NAME=api-gateway \
+                              -f docker/Dockerfile \
+                              -t ${REGISTRY}/${PROJECT}/api-gateway:${IMAGE_TAG} \
+                              -t ${REGISTRY}/${PROJECT}/api-gateway:latest \
+                              .
+                        """
+                    }
+                }
+
+                stage('build: order-service') {
+                    steps {
+                        sh """
+                            docker build \
+                              --build-arg SERVICE_DIR=order-service \
+                              --build-arg JAR_NAME=order-service \
+                              -f docker/Dockerfile \
+                              -t ${REGISTRY}/${PROJECT}/order-service:${IMAGE_TAG} \
+                              -t ${REGISTRY}/${PROJECT}/order-service:latest \
+                              .
+                        """
+                    }
+                }
+
+                stage('build: account-service') {
+                    steps {
+                        sh """
+                            docker build \
+                              --build-arg SERVICE_DIR=account-service \
+                              --build-arg JAR_NAME=account-service \
+                              -f docker/Dockerfile \
+                              -t ${REGISTRY}/${PROJECT}/account-service:${IMAGE_TAG} \
+                              -t ${REGISTRY}/${PROJECT}/account-service:latest \
+                              .
+                        """
+                    }
+                }
+
+                stage('build: market-data-service') {
+                    steps {
+                        sh """
+                            docker build \
+                              --build-arg SERVICE_DIR=market-data-service \
+                              --build-arg JAR_NAME=market-data-service \
+                              -f docker/Dockerfile \
+                              -t ${REGISTRY}/${PROJECT}/market-data-service:${IMAGE_TAG} \
+                              -t ${REGISTRY}/${PROJECT}/market-data-service:latest \
+                              .
+                        """
+                    }
+                }
+
+                stage('build: trading-engine') {
+                    steps {
+                        sh """
+                            docker build \
+                              --build-arg SERVICE_DIR=trading-engine \
+                              --build-arg JAR_NAME=trading-engine \
+                              -f docker/Dockerfile \
+                              -t ${REGISTRY}/${PROJECT}/trading-engine:${IMAGE_TAG} \
+                              -t ${REGISTRY}/${PROJECT}/trading-engine:latest \
+                              .
+                        """
+                    }
+                }
+
+                stage('build: settlement-service') {
+                    steps {
+                        sh """
+                            docker build \
+                              --build-arg SERVICE_DIR=settlement-service \
+                              --build-arg JAR_NAME=settlement-service \
+                              -f docker/Dockerfile \
+                              -t ${REGISTRY}/${PROJECT}/settlement-service:${IMAGE_TAG} \
+                              -t ${REGISTRY}/${PROJECT}/settlement-service:latest \
+                              .
+                        """
+                    }
+                }
             }
         }
 
-        // ⑤ 배포 (컨테이너 재시작)
-        stage('Deploy') {
+        // ④ 인프라 기동 (mysql, redis, kafka 등)
+        stage('Infrastructure Up') {
             steps {
                 sh """
-                    docker compose -p order-system up -d --no-deps spring-app frontend
+                    docker compose -p ${COMPOSE_P} up -d \
+                        mysql redis zookeeper kafka kafdrop
                 """
-                echo "✅ 배포 완료"
+                // 인프라 Ready 대기 (최대 60초)
+                sh '''
+                    for i in $(seq 1 12); do
+                        docker compose exec -T mysql mysqladmin ping -uroot -ppassword --silent 2>/dev/null \
+                            && echo "MySQL Ready" && break
+                        echo "MySQL 대기 중... ($i/12)"
+                        sleep 5
+                    done
+                '''
             }
         }
 
-        // ⑥ 헬스체크
+        // ⑤ 마이크로서비스 병렬 배포 (--no-deps: 타 서비스 재시작 방지)
+        stage('Deploy Services') {
+            parallel {
+                stage('deploy: api-gateway') {
+                    steps {
+                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps api-gateway"
+                    }
+                }
+                stage('deploy: order-service') {
+                    steps {
+                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps order-service"
+                    }
+                }
+                stage('deploy: account-service') {
+                    steps {
+                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps account-service"
+                    }
+                }
+                stage('deploy: market-data-service') {
+                    steps {
+                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps market-data-service"
+                    }
+                }
+                stage('deploy: trading-engine') {
+                    steps {
+                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps trading-engine"
+                    }
+                }
+                stage('deploy: settlement-service') {
+                    steps {
+                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps settlement-service"
+                    }
+                }
+            }
+        }
+
+        // ⑥ 헬스체크 (6개 서비스 모두 확인)
         stage('Health Check') {
             steps {
-                retry(5) {
-                    sleep(time: 10, unit: 'SECONDS')
-                    sh 'curl -f http://spring-app:8080/actuator/health || exit 1'
+                script {
+                    def services = [
+                        [name: 'api-gateway',        port: 8080],
+                        [name: 'order-service',       port: 8081],
+                        [name: 'account-service',     port: 8082],
+                        [name: 'market-data-service', port: 8083],
+                        [name: 'trading-engine',      port: 8084],
+                        [name: 'settlement-service',  port: 8085]
+                    ]
+                    services.each { svc ->
+                        retry(6) {
+                            sleep(time: 10, unit: 'SECONDS')
+                            sh "curl -sf http://localhost:${svc.port}/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
+                        }
+                        echo "${svc.name} 헬스체크 통과"
+                    }
                 }
-                echo "✅ 헬스체크 통과"
             }
         }
     }
 
     post {
         success {
-            echo "🎉 파이프라인 성공! 배포 완료"
+            echo "파이프라인 성공 — branch=${env.BRANCH_NAME}, tag=${env.IMAGE_TAG}"
         }
         failure {
-            echo "❌ 파이프라인 실패! 로그를 확인하세요."
+            echo "파이프라인 실패 — 로그를 확인하세요."
+            // 실패 시 최근 로그 수집
+            sh 'docker compose -p ${COMPOSE_P} logs --tail=50 2>/dev/null || true'
         }
         always {
-            // 빌드 후 불필요한 이미지 정리
-            sh 'docker image prune -f'
+            // 빌드 캐시 최적화 (dangling 이미지 정리)
+            sh 'docker image prune -f || true'
         }
     }
 }

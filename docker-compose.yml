@@ -1,61 +1,90 @@
+# ============================================================
+# Order Exchange System — 마이크로서비스 통합 환경
+# ============================================================
+# 포트 구성:
+#   8080 api-gateway    8081 order-service    8082 account-service
+#   8083 market-data    8084 trading-engine   8085 settlement-service
+#   3306 MySQL  6379 Redis  9092 Kafka  2181 Zookeeper
+#   9000 Kafdrop (Kafka UI)  8090 Jenkins CI/CD
+# ============================================================
+# 사용법:
+#   전체 시작:  docker compose up -d
+#   빌드 포함:  docker compose up -d --build
+#   로그 확인:  docker compose logs -f <서비스명>
+#   전체 종료:  docker compose down
+# ============================================================
+
 services:
 
-  # ─────────────────────────────────────────────
-  # Database
-  # ─────────────────────────────────────────────
+  # ──────────────────────────────────────────────────────────
+  # 인프라: MySQL Database
+  # ──────────────────────────────────────────────────────────
   mysql:
     image: mysql:8.0
-    container_name: order-mysql
+    container_name: exchange-mysql
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpassword}
-      MYSQL_DATABASE: ${MYSQL_DATABASE:-orderdb}
-      MYSQL_USER: ${MYSQL_USER:-orderuser}
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-orderpassword}
-    ports:
-      - "3306:3306"
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_USER: exchange
+      MYSQL_PASSWORD: password
     volumes:
       - mysql-data:/var/lib/mysql
+      - ./docker/mysql/init:/docker-entrypoint-initdb.d
+    ports:
+      - "3306:3306"
+    networks:
+      - exchange-net
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-rootpassword}"]
+      test: ["CMD", "mysqladmin", "ping", "-uroot", "-ppassword"]
       interval: 10s
       timeout: 5s
-      retries: 10
-    networks:
-      - order-network
+      retries: 15
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 
-  # ─────────────────────────────────────────────
-  # Cache (Week 2에서 본격 활용)
-  # ─────────────────────────────────────────────
+  # ──────────────────────────────────────────────────────────
+  # 인프라: Redis
+  # ──────────────────────────────────────────────────────────
   redis:
     image: redis:7-alpine
-    container_name: order-redis
-    command: redis-server --appendonly yes
+    container_name: exchange-redis
     ports:
       - "6379:6379"
     volumes:
       - redis-data:/data
     networks:
-      - order-network
+      - exchange-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
 
-  # ─────────────────────────────────────────────
-  # Message Broker (Week 2에서 본격 활용)
-  # ─────────────────────────────────────────────
+  # ──────────────────────────────────────────────────────────
+  # 인프라: Zookeeper
+  # ──────────────────────────────────────────────────────────
   zookeeper:
     image: confluentinc/cp-zookeeper:7.5.0
-    container_name: order-zookeeper
+    container_name: exchange-zookeeper
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     networks:
-      - order-network
+      - exchange-net
+    healthcheck:
+      test: ["CMD", "bash", "-c", "echo 'ruok' | nc localhost 2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
+  # ──────────────────────────────────────────────────────────
+  # 인프라: Kafka
+  # ──────────────────────────────────────────────────────────
   kafka:
     image: confluentinc/cp-kafka:7.5.0
-    container_name: order-kafka
+    container_name: exchange-kafka
     depends_on:
-      - zookeeper
-    ports:
-      - "9092:9092"
+      zookeeper:
+        condition: service_healthy
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
@@ -64,93 +93,227 @@ services:
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+      KAFKA_NUM_PARTITIONS: 3
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    ports:
+      - "9092:9092"
+      - "29092:29092"
     networks:
-      - order-network
+      - exchange-net
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
 
   # Kafka 모니터링 UI — http://localhost:9000
   kafdrop:
     image: obsidiandynamics/kafdrop:latest
-    container_name: order-kafdrop
+    container_name: exchange-kafdrop
     depends_on:
-      - kafka
+      kafka:
+        condition: service_healthy
     ports:
       - "9000:9000"
     environment:
       KAFKA_BROKERCONNECT: kafka:29092
       JVM_OPTS: "-Xms32M -Xmx64M"
     networks:
-      - order-network
+      - exchange-net
 
-  # ─────────────────────────────────────────────
-  # Application
-  # ─────────────────────────────────────────────
-  spring-app:
+  # ──────────────────────────────────────────────────────────
+  # 마이크로서비스: API Gateway (8080)
+  # ──────────────────────────────────────────────────────────
+  api-gateway:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: order-backend
-    depends_on:
-      mysql:
-        condition: service_healthy
-      redis:
-        condition: service_started
-      kafka:
-        condition: service_started
-    ports:
-      - "8080:8080"
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        SERVICE_DIR: api-gateway
+        JAR_NAME: api-gateway
+    container_name: exchange-api-gateway
     environment:
-      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-orderdb}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      SPRING_DATASOURCE_USERNAME: ${MYSQL_USER:-orderuser}
-      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-orderpassword}
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
       SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
-    networks:
-      - order-network
-
-  frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    container_name: order-frontend
-    depends_on:
-      - spring-app
     ports:
-      - "3000:80"
+      - "8080:8080"
     networks:
-      - order-network
+      - exchange-net
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
 
-  # ─────────────────────────────────────────────
-  # CI/CD
-  # ─────────────────────────────────────────────
-  # Jenkins 관리 UI — http://localhost:8090
+  # ──────────────────────────────────────────────────────────
+  # 마이크로서비스: Order Service (8081)
+  # ──────────────────────────────────────────────────────────
+  order-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        SERVICE_DIR: order-service
+        JAR_NAME: order-service
+    container_name: exchange-order-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/order_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
+      SPRING_DATASOURCE_USERNAME: exchange
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "8081:8081"
+    networks:
+      - exchange-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────
+  # 마이크로서비스: Account Service (8082)
+  # ──────────────────────────────────────────────────────────
+  account-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        SERVICE_DIR: account-service
+        JAR_NAME: account-service
+    container_name: exchange-account-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/account_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
+      SPRING_DATASOURCE_USERNAME: exchange
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "8082:8082"
+    networks:
+      - exchange-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────
+  # 마이크로서비스: Market Data Service (8083)
+  # ──────────────────────────────────────────────────────────
+  market-data-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        SERVICE_DIR: market-data-service
+        JAR_NAME: market-data-service
+    container_name: exchange-market-data
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "8083:8083"
+    networks:
+      - exchange-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────
+  # 마이크로서비스: Trading Engine (8084)
+  # ──────────────────────────────────────────────────────────
+  trading-engine:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        SERVICE_DIR: trading-engine
+        JAR_NAME: trading-engine
+    container_name: exchange-trading-engine
+    environment:
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "8084:8084"
+    networks:
+      - exchange-net
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────
+  # 마이크로서비스: Settlement Service (8085)
+  # ──────────────────────────────────────────────────────────
+  settlement-service:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      args:
+        SERVICE_DIR: settlement-service
+        JAR_NAME: settlement-service
+    container_name: exchange-settlement-service
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/settlement_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Seoul
+      SPRING_DATASOURCE_USERNAME: exchange
+      SPRING_DATASOURCE_PASSWORD: password
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    ports:
+      - "8085:8085"
+    networks:
+      - exchange-net
+    depends_on:
+      mysql:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ──────────────────────────────────────────────────────────
+  # CI/CD: Jenkins — http://localhost:8090
   # 초기 Admin 비밀번호: docker compose logs jenkins
+  # ──────────────────────────────────────────────────────────
   jenkins:
     build:
       context: ./jenkins
       dockerfile: Dockerfile
-    container_name: order-jenkins
+    container_name: exchange-jenkins
     privileged: true
     user: root
     ports:
-      - "8090:8080"    # Jenkins UI
-      - "50000:50000"  # Jenkins Agent 통신 포트
+      - "8090:8080"
+      - "50000:50000"
     volumes:
-      - jenkins-data:/var/jenkins_home          # Jenkins 설정 영속화
-      - /var/run/docker.sock:/var/run/docker.sock  # Docker 소켓 마운트 (DinD)
+      - jenkins-data:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
     environment:
       JAVA_OPTS: "-Djenkins.install.runSetupWizard=true"
     networks:
-      - order-network
+      - exchange-net
 
-# ─────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────
 # Volumes & Networks
-# ─────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────
 volumes:
   mysql-data:
   redis-data:
+  kafka-data:
   jenkins-data:
 
 networks:
-  order-network:
+  exchange-net:
     driver: bridge
