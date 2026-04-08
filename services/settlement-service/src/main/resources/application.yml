@@ -2,6 +2,34 @@ spring:
   application:
     name: settlement-service
 
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/settlement_db?useSSL=false&serverTimezone=Asia/Seoul}
+    username: ${SPRING_DATASOURCE_USERNAME:root}
+    password: ${SPRING_DATASOURCE_PASSWORD:password}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate.dialect: org.hibernate.dialect.MySQLDialect
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: settlement-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+      properties:
+        enable.idempotence: true
+
 server:
   port: 8085
 
@@ -10,16 +38,17 @@ management:
     web:
       exposure:
         include: health,info,metrics
-  endpoint:
-    health:
-      show-details: always
 
-springdoc:
-  swagger-ui:
-    path: /swagger-ui.html
-  api-docs:
-    path: /api-docs
+settlement:
+  kafka:
+    execution-topic: order-status-events     # 수신 (체결 결과)
+    settlement-topic: settlement-events       # 발행 (잔고 업데이트 요청)
+  fee:
+    commission-rate: "0.00015"   # 수수료 0.015% (매수/매도 양측)
+    tax-rate: "0.002"            # 거래세 0.2% (매도 시 부과)
+  t-plus: 2                      # T+2 정산 일수
 
 logging:
   level:
-    com.exchange: DEBUG
+    com.exchange.settlement: DEBUG
+    org.springframework.kafka: WARN
