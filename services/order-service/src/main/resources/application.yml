@@ -2,6 +2,42 @@ spring:
   application:
     name: order-service
 
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:mysql://localhost:3306/orderdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${SPRING_DATASOURCE_USERNAME:orderuser}
+    password: ${SPRING_DATASOURCE_PASSWORD:orderpassword}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: false
+        dialect: org.hibernate.dialect.MySQL8Dialect
+
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+  cache:
+    type: redis
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: order-service-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "com.exchange.order.*,com.exchange.common.*"
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
 server:
   port: 8081
 
@@ -22,4 +58,11 @@ springdoc:
 
 logging:
   level:
-    com.exchange: DEBUG
+    com.exchange.order: DEBUG
+    org.springframework.kafka: WARN
+
+# Outbox 스케줄러 설정
+outbox:
+  scheduler:
+    fixed-delay-ms: 5000   # 5초마다 미발행 이벤트 재시도
+    max-retry: 5            # 최대 재시도 횟수
