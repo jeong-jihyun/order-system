@@ -1,7 +1,7 @@
 import { apiClient } from './axiosConfig'
 import { ApiResponse, Order, OrderRequest, OrderStatus } from '@/types/order'
 
-const BASE = '/api/orders'
+const BASE = '/api/v1/orders'
 
 export const orderApi = {
   /** 전체 주문 조회 */

@@ -309,6 +309,22 @@ services:
     networks:
       - exchange-net
 
+  # ----------------------------------------------------------
+  # Frontend: React + Nginx (3000)
+  # ----------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: exchange-frontend
+    ports:
+      - "3000:80"
+    networks:
+      - exchange-net
+    depends_on:
+      - api-gateway
+    restart: unless-stopped
+
 # ──────────────────────────────────────────────────────────
 # Volumes & Networks
 # ──────────────────────────────────────────────────────────
