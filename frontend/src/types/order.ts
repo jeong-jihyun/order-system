@@ -3,6 +3,7 @@
 // ─────────────────────────────────────────────
 
 export type OrderStatus = 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'CANCELLED'
+export type OrderSide = 'BUY' | 'SELL'
 
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   PENDING: '대기',
@@ -24,6 +25,7 @@ export interface Order {
   productName: string
   quantity: number
   totalPrice: number
+  side?: OrderSide
   status: OrderStatus
   createdAt: string
   updatedAt: string
@@ -34,6 +36,7 @@ export interface OrderRequest {
   productName: string
   quantity: number
   totalPrice: number
+  side?: OrderSide
 }
 
 // ─────────────────────────────────────────────

@@ -34,4 +34,8 @@ public class OrderRequest {
     private BigDecimal totalPrice;
 
     private OrderType orderType;
+
+    /** 주문 방향: BUY(매수) | SELL(매도). 기본값 BUY */
+    @Builder.Default
+    private String side = "BUY";
 }

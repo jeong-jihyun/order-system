@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { orderApi } from '@/api/orderApi'
-import { OrderRequest } from '@/types/order'
+import { OrderRequest, OrderSide } from '@/types/order'
 
 /**
  * [Week 3 실습 포인트]
@@ -19,6 +19,7 @@ const OrderCreatePage = () => {
     productName: '',
     quantity: 1,
     totalPrice: 0,
+    side: 'BUY',
   })
 
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof OrderRequest, string>>>({})
@@ -70,6 +71,35 @@ const OrderCreatePage = () => {
       )}
 
       <form onSubmit={handleSubmit} style={styles.form}>
+        {/* 매수/매도 선택 */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <label style={styles.label}>주문 방향</label>
+          <div style={{ display: 'flex', gap: 0, borderRadius: 4, overflow: 'hidden', border: '1px solid #ccc' }}>
+            {(['BUY', 'SELL'] as OrderSide[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setForm((prev) => ({ ...prev, side: s }))}
+                style={{
+                  flex: 1,
+                  padding: '10px 0',
+                  border: 'none',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  background: form.side === s
+                    ? (s === 'BUY' ? '#1a73e8' : '#d93025')
+                    : '#f5f5f5',
+                  color: form.side === s ? '#fff' : '#888',
+                  transition: 'background 0.2s, color 0.2s',
+                }}
+              >
+                {s === 'BUY' ? '매수 (BUY)' : '매도 (SELL)'}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <Field
           label="고객명"
           name="customerName"

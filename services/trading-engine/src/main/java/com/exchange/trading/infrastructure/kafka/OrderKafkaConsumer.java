@@ -33,14 +33,13 @@ public class OrderKafkaConsumer {
             // PENDING 주문만 매칭 처리
             if (!"PENDING".equals(status)) return;
 
-            Long orderId      = Long.valueOf(payload.get("orderId").toString());
-            String symbol     = (String) payload.get("productName");
-            String orderType  = payload.getOrDefault("orderType", "LIMIT").toString();
-            BigDecimal price  = new BigDecimal(payload.get("totalPrice").toString());
-            BigDecimal qty    = new BigDecimal(payload.get("quantity").toString());
+            Long orderId     = Long.valueOf(payload.get("orderId").toString());
+            String symbol    = (String) payload.get("productName");
+            BigDecimal price = new BigDecimal(payload.get("totalPrice").toString());
+            BigDecimal qty   = new BigDecimal(payload.get("quantity").toString());
 
-            // 주문 방향: 단순화를 위해 quantity > 0 이면 BUY, 추후 side 필드 추가 예정
-            String side = "BUY"; // TODO: order-service에서 side 필드 포함해 발행
+            // order-service가 발행한 side 필드 사용 (BUY | SELL), 없으면 BUY 기본값
+            String side = payload.getOrDefault("side", "BUY").toString().toUpperCase();
 
             executionService.processOrder(orderId, symbol, side, price, qty);
 

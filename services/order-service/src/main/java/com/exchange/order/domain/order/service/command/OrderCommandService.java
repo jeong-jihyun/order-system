@@ -55,12 +55,15 @@ public class OrderCommandService {
         strategy.preProcess(request);
 
         // 3. 주문 저장
+        String side = (request.getSide() != null && !request.getSide().isBlank())
+                ? request.getSide().toUpperCase() : "BUY";
         Order order = Order.builder()
                 .customerName(request.getCustomerName())
                 .productName(request.getProductName())
                 .quantity(request.getQuantity())
                 .totalPrice(request.getTotalPrice())
                 .orderType(orderType)
+                .side(side)
                 .status(OrderStatus.PENDING)
                 .build();
         Order savedOrder = orderCommandPort.save(order);
@@ -73,6 +76,7 @@ public class OrderCommandService {
             "quantity", savedOrder.getQuantity(),
             "totalPrice", savedOrder.getTotalPrice(),
             "orderType", savedOrder.getOrderType(),
+            "side", savedOrder.getSide(),
             "status", savedOrder.getStatus()
         );
         outboxService.save("Order", savedOrder.getId(),

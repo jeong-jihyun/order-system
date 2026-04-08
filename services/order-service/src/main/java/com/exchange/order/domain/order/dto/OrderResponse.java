@@ -22,6 +22,7 @@ public class OrderResponse {
     private Integer quantity;
     private BigDecimal totalPrice;
     private OrderType orderType;
+    private String side;
     private OrderStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -34,6 +35,7 @@ public class OrderResponse {
                 .quantity(order.getQuantity())
                 .totalPrice(order.getTotalPrice())
                 .orderType(order.getOrderType())
+                .side(order.getSide())
                 .status(order.getStatus())
                 .createdAt(order.getCreatedAt())
                 .updatedAt(order.getUpdatedAt())

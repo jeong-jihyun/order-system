@@ -37,6 +37,11 @@ public class Order {
     @Builder.Default
     private OrderType orderType = OrderType.LIMIT;
 
+    /** 주문 방향: BUY(매수) | SELL(매도) */
+    @Column(nullable = false, length = 10)
+    @Builder.Default
+    private String side = "BUY";
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)
     private OrderStatus status;
