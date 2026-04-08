@@ -24,11 +24,13 @@ public class OrderBookEntry implements Comparable<OrderBookEntry> {
     private final BigDecimal price;     // null이면 MARKET 주문
     private final BigDecimal originalQuantity;
     private volatile BigDecimal remainingQuantity;
+    private final String customerName;  // 주문자 username (정산 연동용)
     private final LocalDateTime createdAt;
     private final long sequence;        // 시간 우선 정렬용
 
     public static OrderBookEntry create(Long orderId, String symbol, OrderSide side,
-                                        BigDecimal price, BigDecimal quantity) {
+                                        BigDecimal price, BigDecimal quantity,
+                                        String customerName) {
         return OrderBookEntry.builder()
                 .orderId(orderId)
                 .symbol(symbol)
@@ -36,6 +38,7 @@ public class OrderBookEntry implements Comparable<OrderBookEntry> {
                 .price(price)
                 .originalQuantity(quantity)
                 .remainingQuantity(quantity)
+                .customerName(customerName)
                 .createdAt(LocalDateTime.now())
                 .sequence(SEQUENCE.incrementAndGet())
                 .build();

@@ -64,3 +64,7 @@ outbox:
   scheduler:
     fixed-delay-ms: 5000   # 5초마다 미발행 이벤트 재시도
     max-retry: 5            # 최대 재시도 횟수
+
+# 내부 서비스 통신
+order:
+  account-service-url: ${ACCOUNT_SERVICE_URL:http://exchange-account-service:8082}

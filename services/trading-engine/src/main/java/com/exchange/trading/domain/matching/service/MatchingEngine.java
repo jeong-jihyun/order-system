@@ -76,11 +76,13 @@ public class MatchingEngine {
                     .buyOrderId(buyOrder.getOrderId())
                     .sellOrderId(sellOrder.getOrderId())
                     .symbol(buyOrder.getSymbol())
-                    .executionPrice(askPrice)          // 체결가 = 매도 호가 기준
+                    .executionPrice(askPrice)
                     .executionQuantity(fillQty)
                     .executedAt(LocalDateTime.now())
                     .buyFilled(buyOrder.isFilled())
                     .sellFilled(sellOrder.isFilled())
+                    .buyerUsername(buyOrder.getCustomerName())
+                    .sellerUsername(sellOrder.getCustomerName())
                     .build());
 
             log.info("[체결] symbol={}, price={}, qty={}, buyId={}, sellId={}",
@@ -121,11 +123,13 @@ public class MatchingEngine {
                     .buyOrderId(buyOrder.getOrderId())
                     .sellOrderId(sellOrder.getOrderId())
                     .symbol(sellOrder.getSymbol())
-                    .executionPrice(bidPrice)          // 체결가 = 매수 호가 기준
+                    .executionPrice(bidPrice)
                     .executionQuantity(fillQty)
                     .executedAt(LocalDateTime.now())
                     .buyFilled(buyOrder.isFilled())
                     .sellFilled(sellOrder.isFilled())
+                    .buyerUsername(buyOrder.getCustomerName())
+                    .sellerUsername(sellOrder.getCustomerName())
                     .build());
 
             log.info("[체결] symbol={}, price={}, qty={}, buyId={}, sellId={}",

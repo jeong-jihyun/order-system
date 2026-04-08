@@ -67,4 +67,40 @@ public class AccountService {
         log.info("[출금] accountId={}, amount={}", accountId, request.getAmount());
         return AccountResponse.from(accountRepository.save(account));
     }
+
+    /**
+     * 주문 접수 시 잔고 동결 (매수 증거금)
+     */
+    public void freezeForOrder(String username, java.math.BigDecimal amount) {
+        var user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + username));
+        var accounts = accountRepository.findByUserId(user.getId());
+        var cashAccount = accounts.stream()
+                .filter(a -> a.getAccountType() == AccountType.CASH)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("현금 계좌가 없습니다."));
+        var locked = accountRepository.findByIdForUpdate(cashAccount.getId())
+                .orElseThrow(() -> new IllegalStateException("계좌 잠금 실패"));
+        locked.freeze(amount);
+        accountRepository.save(locked);
+        log.info("[증거금 동결] user={}, amount={}", username, amount);
+    }
+
+    /**
+     * 주문 취소 시 동결 해제
+     */
+    public void unfreezeForOrder(String username, java.math.BigDecimal amount) {
+        var user = userRepository.findByUsername(username)
+                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + username));
+        var accounts = accountRepository.findByUserId(user.getId());
+        var cashAccount = accounts.stream()
+                .filter(a -> a.getAccountType() == AccountType.CASH)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("현금 계좌가 없습니다."));
+        var locked = accountRepository.findByIdForUpdate(cashAccount.getId())
+                .orElseThrow(() -> new IllegalStateException("계좌 잠금 실패"));
+        locked.unfreeze(amount);
+        accountRepository.save(locked);
+        log.info("[증거금 해제] user={}, amount={}", username, amount);
+    }
 }

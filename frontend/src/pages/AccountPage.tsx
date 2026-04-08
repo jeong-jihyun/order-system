@@ -1,13 +1,26 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { accountApi, AccountResponse, CreateAccountRequest } from '@/api/accountApi'
-import LoadingSpinner from '@/components/common/LoadingSpinner'
-import ErrorFallback from '@/components/common/ErrorFallback'
+import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
+import Button from '@mui/material/Button'
+import Paper from '@mui/material/Paper'
+import Chip from '@mui/material/Chip'
+import Dialog from '@mui/material/Dialog'
+import DialogTitle from '@mui/material/DialogTitle'
+import DialogContent from '@mui/material/DialogContent'
+import DialogActions from '@mui/material/DialogActions'
+import TextField from '@mui/material/TextField'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import ToggleButton from '@mui/material/ToggleButton'
+import Alert from '@mui/material/Alert'
+import CircularProgress from '@mui/material/CircularProgress'
+import Grid from '@mui/material/Grid'
+import AddIcon from '@mui/icons-material/Add'
 
 type Action = 'deposit' | 'withdraw'
 
-const ACCOUNT_TYPES: CreateAccountRequest['accountType'][] = ['CASH', 'STOCK', 'DERIVATIVE']
-const ACCOUNT_TYPE_LABEL: Record<string, string> = {
+const TYPE_LABEL: Record<string, string> = {
   CASH: '현금 계좌',
   STOCK: '주식 계좌',
   DERIVATIVE: '파생 계좌',
@@ -18,8 +31,8 @@ const AccountPage = () => {
   const [selected, setSelected] = useState<{ account: AccountResponse; action: Action } | null>(null)
   const [amount, setAmount] = useState('')
   const [actionError, setActionError] = useState('')
-  const [showCreateModal, setShowCreateModal] = useState(false)
-  const [newAccountType, setNewAccountType] = useState<CreateAccountRequest['accountType']>('CASH')
+  const [showCreate, setShowCreate] = useState(false)
+  const [newType, setNewType] = useState<CreateAccountRequest['accountType']>('CASH')
 
   const { data: accounts, isLoading, isError, error } = useQuery({
     queryKey: ['accounts', 'me'],
@@ -28,9 +41,7 @@ const AccountPage = () => {
 
   const mutation = useMutation({
     mutationFn: ({ id, action, amt }: { id: number; action: Action; amt: number }) =>
-      action === 'deposit'
-        ? accountApi.deposit(id, amt)
-        : accountApi.withdraw(id, amt),
+      action === 'deposit' ? accountApi.deposit(id, amt) : accountApi.withdraw(id, amt),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts', 'me'] })
       setSelected(null)
@@ -41,10 +52,10 @@ const AccountPage = () => {
   })
 
   const createMutation = useMutation({
-    mutationFn: () => accountApi.create(newAccountType),
+    mutationFn: () => accountApi.create(newType),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['accounts', 'me'] })
-      setShowCreateModal(false)
+      setShowCreate(false)
     },
   })
 
@@ -52,223 +63,105 @@ const AccountPage = () => {
     e.preventDefault()
     if (!selected) return
     const amt = parseFloat(amount)
-    if (!amt || amt <= 0) {
-      setActionError('0보다 큰 금액을 입력해주세요.')
-      return
-    }
+    if (!amt || amt <= 0) { setActionError('0보다 큰 금액 입력'); return }
     mutation.mutate({ id: selected.account.id, action: selected.action, amt })
   }
 
-  if (isLoading) return <LoadingSpinner message="계좌 정보 불러오는 중..." />
-  if (isError) return <ErrorFallback error={error as Error} />
+  if (isLoading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress /></Box>
+  if (isError) return <Alert severity="error">{(error as Error).message}</Alert>
 
   return (
-    <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-        <h2 style={styles.pageTitle}>내 계좌</h2>
-        <button
-          style={styles.addBtn}
-          onClick={() => { setNewAccountType('CASH'); setShowCreateModal(true) }}
-        >
-          + 계좌 추가
-        </button>
-      </div>
+    <Box>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2.5 }}>
+        <Typography variant="h6" sx={{ fontWeight: 700, color: '#d1d4dc' }}>내 계좌</Typography>
+        <Button variant="contained" startIcon={<AddIcon />} size="small" onClick={() => { setNewType('CASH'); setShowCreate(true) }}>
+          계좌 추가
+        </Button>
+      </Box>
 
       {accounts?.length === 0 && (
-        <div style={styles.empty}>등록된 계좌가 없습니다.</div>
+        <Paper sx={{ p: 5, textAlign: 'center', color: '#787b86' }}>등록된 계좌가 없습니다.</Paper>
       )}
 
-      <div style={styles.grid}>
+      <Grid container spacing={2}>
         {accounts?.map((acc) => (
-          <div key={acc.id} style={styles.card}>
-            <div style={styles.cardHeader}>
-              <span style={styles.accountType}>{acc.accountType}</span>
-              <span style={{ ...styles.badge, background: acc.active ? '#34a853' : '#999' }}>
-                {acc.active ? '활성' : '비활성'}
-              </span>
-            </div>
-            <div style={styles.accountNumber}>{acc.accountNumber}</div>
-            <div style={styles.balanceGrid}>
-              <BalanceRow label="총 잔고" value={acc.balance} />
-              <BalanceRow label="동결 금액" value={acc.frozenBalance} color="#f5a623" />
-              <BalanceRow label="출금 가능" value={acc.availableBalance} color="#1a73e8" bold />
-            </div>
-            <div style={styles.cardFooter}>
-              <button
-                style={{ ...styles.actionBtn, background: '#34a853' }}
-                onClick={() => { setSelected({ account: acc, action: 'deposit' }); setAmount(''); setActionError('') }}
-              >
-                입금
-              </button>
-              <button
-                style={{ ...styles.actionBtn, background: '#d93025' }}
-                onClick={() => { setSelected({ account: acc, action: 'withdraw' }); setAmount(''); setActionError('') }}
-              >
-                출금
-              </button>
-            </div>
-          </div>
+          <Grid size={{ xs: 12, sm: 6, md: 4 }} key={acc.id}>
+            <Paper sx={{ p: 2.5, bgcolor: '#1e222d', border: '1px solid #2a2e39' }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 1 }}>
+                <Typography sx={{ fontWeight: 700 }}>{TYPE_LABEL[acc.accountType] ?? acc.accountType}</Typography>
+                <Chip label={acc.active ? '활성' : '비활성'} size="small" color={acc.active ? 'success' : 'default'} />
+              </Box>
+              <Typography variant="caption" sx={{ color: '#787b86', letterSpacing: 1, display: 'block', mb: 2 }}>{acc.accountNumber}</Typography>
+
+              <Row label="총 잔고" value={acc.balance} />
+              <Row label="동결" value={acc.frozenBalance} color="#f5a623" />
+              <Row label="출금 가능" value={acc.availableBalance} color="#2962ff" bold />
+
+              <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                <Button fullWidth size="small" variant="outlined" color="success" onClick={() => { setSelected({ account: acc, action: 'deposit' }); setAmount(''); setActionError('') }}>입금</Button>
+                <Button fullWidth size="small" variant="outlined" color="error" onClick={() => { setSelected({ account: acc, action: 'withdraw' }); setAmount(''); setActionError('') }}>출금</Button>
+              </Box>
+            </Paper>
+          </Grid>
         ))}
-      </div>
+      </Grid>
 
-      {/* 입금/출금 모달 */}
-      {selected && (
-        <div style={styles.overlay} onClick={() => setSelected(null)}>
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>
-              {selected.action === 'deposit' ? '💰 입금' : '💸 출금'} — {selected.account.accountNumber}
-            </h3>
-            <p style={styles.modalSub}>
-              출금 가능 잔액: <strong>₩{selected.account.availableBalance.toLocaleString()}</strong>
-            </p>
+      {/* 입금/출금 다이얼로그 */}
+      <Dialog open={!!selected} onClose={() => setSelected(null)} slotProps={{ paper: { sx: { bgcolor: '#1e222d', border: '1px solid #2a2e39', minWidth: 340 } } }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>
+          {selected?.action === 'deposit' ? '입금' : '출금'} — {selected?.account.accountNumber}
+        </DialogTitle>
+        <form onSubmit={handleSubmit}>
+          <DialogContent>
+            <Typography variant="body2" sx={{ color: '#787b86', mb: 2 }}>
+              출금 가능: <strong style={{ color: '#d1d4dc' }}>₩{selected?.account.availableBalance.toLocaleString()}</strong>
+            </Typography>
+            {actionError && <Alert severity="error" sx={{ mb: 2 }}>{actionError}</Alert>}
+            <TextField fullWidth label="금액 (원)" type="number" value={amount} onChange={(e) => { setAmount(e.target.value); setActionError('') }} autoFocus />
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button onClick={() => setSelected(null)}>취소</Button>
+            <Button type="submit" variant="contained" color={selected?.action === 'deposit' ? 'success' : 'error'} disabled={mutation.isPending}>
+              {mutation.isPending ? '처리 중...' : '확인'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
 
-            {actionError && <div style={styles.errorBox}>⚠️ {actionError}</div>}
-
-            <form onSubmit={handleSubmit} style={styles.modalForm}>
-              <input
-                style={styles.input}
-                type="number"
-                min="0.01"
-                step="0.01"
-                value={amount}
-                onChange={(e) => { setAmount(e.target.value); setActionError('') }}
-                placeholder="금액 입력 (원)"
-                autoFocus
-              />
-              <div style={styles.modalBtns}>
-                <button type="button" style={styles.cancelBtn} onClick={() => setSelected(null)}>
-                  취소
-                </button>
-                <button
-                  type="submit"
-                  style={{
-                    ...styles.confirmBtn,
-                    background: selected.action === 'deposit' ? '#34a853' : '#d93025',
-                    opacity: mutation.isPending ? 0.7 : 1,
-                  }}
-                  disabled={mutation.isPending}
-                >
-                  {mutation.isPending ? '처리 중...' : selected.action === 'deposit' ? '입금 확인' : '출금 확인'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-      {/* 계좌 추가 모달 */}
-      {showCreateModal && (
-        <div style={styles.overlay} onClick={() => setShowCreateModal(false)}>
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <h3 style={styles.modalTitle}>🏦 새 계좌 추가</h3>
-            <p style={{ color: '#555', fontSize: 13, marginBottom: 16 }}>계좌 유형을 선택하세요</p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-              {ACCOUNT_TYPES.map((type) => (
-                <button
-                  key={type}
-                  type="button"
-                  onClick={() => setNewAccountType(type)}
-                  style={{
-                    padding: '12px 16px',
-                    borderRadius: 6,
-                    border: `2px solid ${newAccountType === type ? '#1a73e8' : '#e0e0e0'}`,
-                    background: newAccountType === type ? '#e8f0fe' : '#fff',
-                    color: newAccountType === type ? '#1a73e8' : '#444',
-                    fontWeight: newAccountType === type ? 700 : 400,
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    fontSize: 14,
-                  }}
-                >
-                  {ACCOUNT_TYPE_LABEL[type]}
-                </button>
-              ))}
-            </div>
-            {createMutation.isError && (
-              <div style={{ ...styles.errorBox, marginBottom: 12 }}>
-                ⚠️ {(createMutation.error as Error).message}
-              </div>
-            )}
-            <div style={styles.modalBtns}>
-              <button style={styles.cancelBtn} onClick={() => setShowCreateModal(false)}>취소</button>
-              <button
-                style={{ ...styles.confirmBtn, background: '#1a73e8', opacity: createMutation.isPending ? 0.7 : 1 }}
-                disabled={createMutation.isPending}
-                onClick={() => createMutation.mutate()}
-              >
-                {createMutation.isPending ? '생성 중...' : '계좌 생성'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+      {/* 계좌 추가 다이얼로그 */}
+      <Dialog open={showCreate} onClose={() => setShowCreate(false)} slotProps={{ paper: { sx: { bgcolor: '#1e222d', border: '1px solid #2a2e39', minWidth: 340 } } }}>
+        <DialogTitle sx={{ fontWeight: 700 }}>새 계좌 추가</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ color: '#787b86', mb: 2 }}>계좌 유형을 선택하세요</Typography>
+          <ToggleButtonGroup
+            exclusive
+            fullWidth
+            value={newType}
+            onChange={(_, v) => v && setNewType(v)}
+            sx={{ mb: 2 }}
+          >
+            <ToggleButton value="CASH">현금</ToggleButton>
+            <ToggleButton value="STOCK">주식</ToggleButton>
+            <ToggleButton value="DERIVATIVE">파생</ToggleButton>
+          </ToggleButtonGroup>
+          {createMutation.isError && <Alert severity="error">{(createMutation.error as Error).message}</Alert>}
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setShowCreate(false)}>취소</Button>
+          <Button variant="contained" disabled={createMutation.isPending} onClick={() => createMutation.mutate()}>
+            {createMutation.isPending ? '생성 중...' : '계좌 생성'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   )
 }
 
-const BalanceRow = ({ label, value, color = '#222', bold = false }: {
-  label: string; value: number; color?: string; bold?: boolean
-}) => (
-  <div style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0' }}>
-    <span style={{ color: '#666', fontSize: 13 }}>{label}</span>
-    <span style={{ color, fontWeight: bold ? 700 : 400, fontSize: 14 }}>
-      ₩{value.toLocaleString()}
-    </span>
-  </div>
+const Row = ({ label, value, color = '#d1d4dc', bold = false }: { label: string; value: number; color?: string; bold?: boolean }) => (
+  <Box sx={{ display: 'flex', justifyContent: 'space-between', py: 0.4 }}>
+    <Typography variant="body2" sx={{ color: '#787b86', fontSize: 13 }}>{label}</Typography>
+    <Typography variant="body2" sx={{ color, fontWeight: bold ? 700 : 400, fontSize: 13 }}>₩{value.toLocaleString()}</Typography>
+  </Box>
 )
-
-const styles: Record<string, React.CSSProperties> = {
-  pageTitle: { fontSize: 20, fontWeight: 700, margin: 0 },
-  addBtn: {
-    padding: '8px 18px',
-    background: '#1a73e8',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 6,
-    fontWeight: 600,
-    fontSize: 14,
-    cursor: 'pointer',
-  },
-  empty: { color: '#888', padding: 40, textAlign: 'center' },
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 },
-  card: {
-    background: '#fff',
-    border: '1px solid #e8eaed',
-    borderRadius: 10,
-    padding: 20,
-    boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  },
-  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  accountType: { fontWeight: 700, fontSize: 15 },
-  badge: { color: '#fff', fontSize: 11, padding: '2px 8px', borderRadius: 10, fontWeight: 600 },
-  accountNumber: { color: '#555', fontSize: 13, marginBottom: 16, letterSpacing: 1 },
-  balanceGrid: { borderTop: '1px solid #f0f0f0', paddingTop: 12, marginBottom: 16 },
-  cardFooter: { display: 'flex', gap: 8 },
-  actionBtn: {
-    flex: 1,
-    padding: '8px',
-    border: 'none',
-    borderRadius: 6,
-    color: '#fff',
-    fontWeight: 600,
-    fontSize: 14,
-    cursor: 'pointer',
-  },
-  overlay: {
-    position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999,
-  },
-  modal: {
-    background: '#fff', borderRadius: 12, padding: 32, width: 360,
-    boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
-  },
-  modalTitle: { fontSize: 18, fontWeight: 700, marginBottom: 8 },
-  modalSub: { color: '#555', fontSize: 14, marginBottom: 16 },
-  modalForm: { display: 'flex', flexDirection: 'column', gap: 12 },
-  input: { padding: '10px 12px', borderRadius: 6, border: '1px solid #ccc', fontSize: 15 },
-  modalBtns: { display: 'flex', gap: 8, marginTop: 4 },
-  cancelBtn: { flex: 1, padding: '10px', background: '#f0f0f0', border: 'none', borderRadius: 6, fontWeight: 600, cursor: 'pointer' },
-  confirmBtn: { flex: 1, padding: '10px', border: 'none', borderRadius: 6, color: '#fff', fontWeight: 700, cursor: 'pointer' },
-  errorBox: { background: '#fff3f3', color: '#c00', border: '1px solid #fcc', borderRadius: 6, padding: '8px 12px', fontSize: 13 },
-}
 
 export default AccountPage

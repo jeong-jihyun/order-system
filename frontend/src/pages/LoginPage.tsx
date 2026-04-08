@@ -3,6 +3,13 @@ import { useNavigate, Link } from 'react-router-dom'
 import { useMutation } from '@tanstack/react-query'
 import { authApi } from '@/api/authApi'
 import { useAuth } from '@/context/AuthContext'
+import Box from '@mui/material/Box'
+import Paper from '@mui/material/Paper'
+import Typography from '@mui/material/Typography'
+import TextField from '@mui/material/TextField'
+import Button from '@mui/material/Button'
+import Alert from '@mui/material/Alert'
+import AccountBalanceIcon from '@mui/icons-material/AccountBalance'
 
 const LoginPage = () => {
   const navigate = useNavigate()
@@ -24,107 +31,59 @@ const LoginPage = () => {
   }
 
   return (
-    <div style={styles.wrap}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>🏦 Exchange System</h1>
-        <p style={styles.subtitle}>로그인</p>
+    <Box sx={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', bgcolor: '#131722' }}>
+      <Paper sx={{ p: 5, width: 380, bgcolor: '#1e222d', border: '1px solid #2a2e39' }}>
+        <Box sx={{ textAlign: 'center', mb: 3 }}>
+          <AccountBalanceIcon sx={{ fontSize: 40, color: '#2962ff', mb: 1 }} />
+          <Typography variant="h5" sx={{ fontWeight: 800, color: '#d1d4dc' }}>Exchange System</Typography>
+          <Typography variant="body2" sx={{ color: '#787b86', mt: 0.5 }}>로그인</Typography>
+        </Box>
 
         {mutation.isError && (
-          <div style={styles.errorBox}>⚠️ {(mutation.error as Error).message}</div>
+          <Alert severity="error" sx={{ mb: 2 }}>
+            {(mutation.error as Error).message}
+          </Alert>
         )}
 
-        <form onSubmit={handleSubmit} style={styles.form}>
-          <label style={styles.label}>사용자명</label>
-          <input
-            style={styles.input}
-            type="text"
+        <form onSubmit={handleSubmit}>
+          <TextField
+            fullWidth
+            label="사용자명"
             autoComplete="username"
             value={form.username}
             onChange={(e) => setForm((p) => ({ ...p, username: e.target.value }))}
-            placeholder="username"
             required
+            sx={{ mb: 2 }}
           />
-
-          <label style={styles.label}>비밀번호</label>
-          <input
-            style={styles.input}
+          <TextField
+            fullWidth
+            label="비밀번호"
             type="password"
             autoComplete="current-password"
             value={form.password}
             onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
-            placeholder="••••••••"
             required
+            sx={{ mb: 3 }}
           />
-
-          <button
+          <Button
             type="submit"
-            style={{ ...styles.btn, opacity: mutation.isPending ? 0.7 : 1 }}
+            fullWidth
+            variant="contained"
+            size="large"
             disabled={mutation.isPending}
+            sx={{ py: 1.3, fontWeight: 700, fontSize: 15 }}
           >
             {mutation.isPending ? '로그인 중...' : '로그인'}
-          </button>
+          </Button>
         </form>
 
-        <p style={styles.footer}>
+        <Typography variant="body2" sx={{ textAlign: 'center', mt: 2.5, color: '#787b86' }}>
           계정이 없으신가요?{' '}
-          <Link to="/signup" style={styles.link}>
-            회원가입
-          </Link>
-        </p>
-      </div>
-    </div>
+          <Link to="/signup" style={{ color: '#2962ff', fontWeight: 600 }}>회원가입</Link>
+        </Typography>
+      </Paper>
+    </Box>
   )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  wrap: {
-    minHeight: '100vh',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: '#f0f4f8',
-  },
-  card: {
-    background: '#fff',
-    borderRadius: 12,
-    padding: '48px 40px',
-    width: 360,
-    boxShadow: '0 4px 20px rgba(0,0,0,0.12)',
-  },
-  title: { textAlign: 'center', fontSize: 24, fontWeight: 700, marginBottom: 4 },
-  subtitle: { textAlign: 'center', color: '#666', marginBottom: 28 },
-  form: { display: 'flex', flexDirection: 'column', gap: 8 },
-  label: { fontSize: 13, fontWeight: 600, color: '#333' },
-  input: {
-    padding: '10px 12px',
-    borderRadius: 6,
-    border: '1px solid #ccc',
-    fontSize: 14,
-    marginBottom: 8,
-    outline: 'none',
-  },
-  btn: {
-    marginTop: 8,
-    padding: '12px',
-    background: '#1a73e8',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 6,
-    fontWeight: 700,
-    fontSize: 15,
-    cursor: 'pointer',
-  },
-  errorBox: {
-    background: '#fff3f3',
-    color: '#c00',
-    border: '1px solid #fcc',
-    borderRadius: 6,
-    padding: '10px 14px',
-    marginBottom: 16,
-    fontSize: 13,
-  },
-  footer: { textAlign: 'center', marginTop: 20, fontSize: 13, color: '#666' },
-  link: { color: '#1a73e8', fontWeight: 600 },
 }
 
 export default LoginPage

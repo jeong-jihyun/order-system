@@ -29,13 +29,15 @@ public class SettlementEventProducer {
     public void publishSettlementComplete(SettlementRecord record) {
         try {
             Map<String, Object> payload = Map.of(
-                "settlementId",  record.getId(),
-                "orderId",       record.getOrderId(),
-                "username",      record.getUsername(),
-                "symbol",        record.getSymbol(),
-                "side",          record.getSide(),
-                "netAmount",     record.getNetAmount(),
-                "settlementDate",record.getSettlementDate().toString()
+                "settlementId",      record.getId(),
+                "orderId",           record.getOrderId(),
+                "username",          record.getUsername(),
+                "symbol",            record.getSymbol(),
+                "side",              record.getSide(),
+                "executionPrice",    record.getExecutionPrice(),
+                "executionQuantity", record.getExecutionQuantity(),
+                "netAmount",         record.getNetAmount(),
+                "settlementDate",    record.getSettlementDate().toString()
             );
             String json = objectMapper.writeValueAsString(payload);
             kafkaTemplate.send(settlementTopic, record.getUsername(), json);

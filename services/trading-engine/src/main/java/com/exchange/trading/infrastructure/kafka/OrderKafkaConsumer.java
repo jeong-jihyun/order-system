@@ -1,6 +1,7 @@
 package com.exchange.trading.infrastructure.kafka;
 
 import com.exchange.trading.domain.matching.service.ExecutionService;
+import com.exchange.trading.domain.matching.service.StopOrderManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,6 +21,7 @@ import java.util.Map;
 public class OrderKafkaConsumer {
 
     private final ExecutionService executionService;
+    private final StopOrderManager stopOrderManager;
     private final ObjectMapper objectMapper;
 
     @KafkaListener(topics = "${trading.kafka.order-topic:order-events}",
@@ -40,8 +42,20 @@ public class OrderKafkaConsumer {
 
             // order-service가 발행한 side 필드 사용 (BUY | SELL), 없으면 BUY 기본값
             String side = payload.getOrDefault("side", "BUY").toString().toUpperCase();
+            String customerName = payload.getOrDefault("customerName", "").toString();
+            String orderType = payload.getOrDefault("orderType", "LIMIT").toString();
 
-            executionService.processOrder(orderId, symbol, side, price, qty);
+            // STOP 주문은 대기 목록에 등록 (즉시 매칭하지 않음)
+            if ("STOP_LOSS".equals(orderType) || "STOP_LIMIT".equals(orderType)) {
+                Object stopPriceObj = payload.get("stopPrice");
+                BigDecimal stopPrice = stopPriceObj != null
+                        ? new BigDecimal(stopPriceObj.toString()) : price;
+                stopOrderManager.registerStopOrder(orderId, symbol, side,
+                        stopPrice, price, qty, orderType, customerName);
+                return;
+            }
+
+            executionService.processOrder(orderId, symbol, side, price, qty, customerName);
 
         } catch (Exception e) {
             log.error("[TradingEngine] 주문 처리 실패: {}", e.getMessage(), e);

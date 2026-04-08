@@ -47,6 +47,17 @@ spring:
                 name: account-service-cb
                 fallbackUri: forward:/fallback
 
+        - id: holdings-service
+          uri: http://exchange-account-service:8082
+          predicates:
+            - Path=/api/v1/holdings/**
+          filters:
+            - JwtAuthentication
+            - name: CircuitBreaker
+              args:
+                name: account-service-cb
+                fallbackUri: forward:/fallback
+
         - id: order-service
           uri: http://exchange-order-service:8081
           predicates:

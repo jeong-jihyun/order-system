@@ -1,12 +1,33 @@
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { settlementApi, SettlementRecord } from '@/api/settlementApi'
-import LoadingSpinner from '@/components/common/LoadingSpinner'
-import ErrorFallback from '@/components/common/ErrorFallback'
+import { SYMBOL_MAP } from '@/constants/symbols'
+import { AgGridReact } from 'ag-grid-react'
+import { AllCommunityModule, themeQuartz, ColDef, ICellRendererParams } from 'ag-grid-community'
+import Box from '@mui/material/Box'
+import Typography from '@mui/material/Typography'
+import Chip from '@mui/material/Chip'
+import CircularProgress from '@mui/material/CircularProgress'
+import Alert from '@mui/material/Alert'
 
-const STATUS_COLOR: Record<string, string> = {
-  PENDING: '#f5a623',
-  SETTLED: '#34a853',
-  FAILED: '#d93025',
+const darkTheme = themeQuartz.withParams({
+  backgroundColor: '#1e222d',
+  foregroundColor: '#d1d4dc',
+  borderColor: '#2a2e39',
+  rowHoverColor: '#262b3a',
+  selectedRowBackgroundColor: '#2a2e39',
+  oddRowBackgroundColor: '#1a1e29',
+  chromeBackgroundColor: '#131722',
+  fontFamily: '"Noto Sans KR", Roboto, sans-serif',
+  fontSize: 13,
+  headerFontSize: 12,
+  headerFontWeight: 700,
+} as any)
+
+const STATUS_COLOR: Record<string, 'warning' | 'success' | 'error'> = {
+  PENDING: 'warning',
+  SETTLED: 'success',
+  FAILED: 'error',
 }
 
 const SettlementPage = () => {
@@ -15,79 +36,112 @@ const SettlementPage = () => {
     queryFn: settlementApi.getMySettlements,
   })
 
-  if (isLoading) return <LoadingSpinner message="정산 내역 불러오는 중..." />
-  if (isError) return <ErrorFallback error={error as Error} />
+  const cols = useMemo<ColDef<SettlementRecord>[]>(() => [
+    { field: 'id', headerName: 'ID', width: 60 },
+    { field: 'orderId', headerName: '주문ID', width: 80 },
+    { field: 'symbol', headerName: '종목코드', width: 90 },
+    {
+      field: 'symbol',
+      headerName: '종목명',
+      width: 120,
+      valueFormatter: (p) => SYMBOL_MAP[p.value]?.name ?? p.value,
+    },
+    {
+      field: 'side',
+      headerName: '구분',
+      width: 75,
+      cellRenderer: (p: ICellRendererParams<SettlementRecord>) => {
+        if (!p.value) return '—'
+        const buy = p.value === 'BUY'
+        return <Chip label={buy ? '매수' : '매도'} size="small" color={buy ? 'success' : 'error'} sx={{ fontSize: 11 }} />
+      },
+    },
+    {
+      field: 'executionPrice',
+      headerName: '체결가',
+      width: 110,
+      type: 'numericColumn',
+      valueFormatter: (p) => `₩${Number(p.value).toLocaleString()}`,
+    },
+    {
+      field: 'executionQuantity',
+      headerName: '수량',
+      width: 75,
+      type: 'numericColumn',
+      valueFormatter: (p) => Number(p.value).toLocaleString(),
+    },
+    {
+      field: 'grossAmount',
+      headerName: '총액',
+      width: 120,
+      type: 'numericColumn',
+      valueFormatter: (p) => `₩${Number(p.value).toLocaleString()}`,
+    },
+    {
+      field: 'commission',
+      headerName: '수수료',
+      width: 95,
+      type: 'numericColumn',
+      cellStyle: { color: '#f5a623' },
+      valueFormatter: (p) => `₩${Number(p.value).toLocaleString()}`,
+    },
+    {
+      field: 'tax',
+      headerName: '세금',
+      width: 85,
+      type: 'numericColumn',
+      cellStyle: { color: '#f5a623' },
+      valueFormatter: (p) => `₩${Number(p.value).toLocaleString()}`,
+    },
+    {
+      field: 'netAmount',
+      headerName: '실수령/실지불',
+      width: 130,
+      type: 'numericColumn',
+      cellRenderer: (p: ICellRendererParams<SettlementRecord>) => {
+        if (!p.data) return '—'
+        const buy = p.data.side === 'BUY'
+        const color = buy ? '#ef5350' : '#26a69a'
+        return `<span style="color:${color};font-weight:700">${buy ? '-' : '+'}₩${Number(p.data.netAmount).toLocaleString()}</span>`
+      },
+    },
+    { field: 'settlementDate', headerName: '정산일', width: 110 },
+    {
+      field: 'status',
+      headerName: '상태',
+      width: 90,
+      cellRenderer: (p: ICellRendererParams<SettlementRecord>) => {
+        if (!p.data) return null
+        const color = STATUS_COLOR[p.data.status] ?? 'default'
+        return <Chip label={p.data.status} size="small" color={color} />
+      },
+    },
+  ], [])
+
+  if (isLoading) return <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress /></Box>
+  if (isError) return <Alert severity="error">{(error as Error).message}</Alert>
 
   return (
-    <div>
-      <h2 style={styles.pageTitle}>정산 내역 ({records?.length ?? 0}건)</h2>
+    <Box>
+      <Typography variant="h6" sx={{ fontWeight: 700, color: '#d1d4dc', mb: 2 }}>
+        정산 내역 <Chip label={`${records?.length ?? 0}건`} size="small" sx={{ ml: 1, bgcolor: '#2a2e39', color: '#787b86' }} />
+      </Typography>
 
-      {records?.length === 0 && (
-        <div style={styles.empty}>정산 내역이 없습니다.</div>
-      )}
-
-      <div style={styles.tableWrap}>
-        <table style={styles.table}>
-          <thead>
-            <tr style={styles.thead}>
-              <th>ID</th>
-              <th>주문 ID</th>
-              <th>종목</th>
-              <th>구분</th>
-              <th>체결가</th>
-              <th>체결 수량</th>
-              <th>총액</th>
-              <th>수수료</th>
-              <th>세금</th>
-              <th>실수령/실지불</th>
-              <th>정산 예정일</th>
-              <th>상태</th>
-            </tr>
-          </thead>
-          <tbody>
-            {records?.map((r: SettlementRecord) => (
-              <tr key={r.id} style={styles.tr}>
-                <td style={styles.td}>{r.id}</td>
-                <td style={styles.td}>{r.orderId}</td>
-                <td style={{ ...styles.td, fontWeight: 700 }}>{r.symbol}</td>
-                <td style={{ ...styles.td, color: r.side === 'BUY' ? '#34a853' : '#d93025', fontWeight: 600 }}>
-                  {r.side === 'BUY' ? '매수' : '매도'}
-                </td>
-                <td style={styles.td}>₩{Number(r.executionPrice).toLocaleString()}</td>
-                <td style={styles.td}>{Number(r.executionQuantity).toLocaleString()}</td>
-                <td style={styles.td}>₩{Number(r.grossAmount).toLocaleString()}</td>
-                <td style={{ ...styles.td, color: '#f5a623' }}>₩{Number(r.commission).toLocaleString()}</td>
-                <td style={{ ...styles.td, color: '#f5a623' }}>₩{Number(r.tax).toLocaleString()}</td>
-                <td style={{ ...styles.td, fontWeight: 700, color: r.side === 'BUY' ? '#d93025' : '#34a853' }}>
-                  {r.side === 'BUY' ? '-' : '+'}₩{Number(r.netAmount).toLocaleString()}
-                </td>
-                <td style={styles.td}>{r.settlementDate}</td>
-                <td style={styles.td}>
-                  <span style={{
-                    ...styles.badge,
-                    background: STATUS_COLOR[r.status] ?? '#999',
-                  }}>
-                    {r.status}
-                  </span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
+      <Box sx={{ height: 'calc(100vh - 180px)', width: '100%' }}>
+        <AgGridReact<SettlementRecord>
+          modules={[AllCommunityModule]}
+          theme={darkTheme}
+          rowData={records ?? []}
+          columnDefs={cols}
+          defaultColDef={{ sortable: true, filter: true, resizable: true }}
+          animateRows
+          pagination
+          paginationPageSize={20}
+          suppressCellFocus
+        />
+      </Box>
+    </Box>
   )
-}
-
-const styles: Record<string, React.CSSProperties> = {
-  pageTitle: { fontSize: 20, fontWeight: 700, marginBottom: 20 },
-  empty: { color: '#888', padding: 40, textAlign: 'center' },
-  tableWrap: { overflowX: 'auto', background: '#fff', borderRadius: 10, boxShadow: '0 1px 4px rgba(0,0,0,0.08)' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  thead: { background: '#f5f5f5', fontWeight: 700 },
-  tr: { borderBottom: '1px solid #f0f0f0' },
-  td: { padding: '10px 12px', textAlign: 'right', whiteSpace: 'nowrap' },
-  badge: { color: '#fff', padding: '2px 8px', borderRadius: 10, fontSize: 11, fontWeight: 600 },
 }
 
 export default SettlementPage

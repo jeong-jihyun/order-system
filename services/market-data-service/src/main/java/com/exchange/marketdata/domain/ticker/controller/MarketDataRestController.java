@@ -26,7 +26,7 @@ public class MarketDataRestController {
     @GetMapping("/ticker/{symbol}")
     public ResponseEntity<ApiResponse<TickerDto>> getTicker(@PathVariable String symbol) {
         TickerDto ticker = tickerService.getTicker(symbol)
-                .orElseThrow(() -> new IllegalArgumentException("시세 정보가 없습니다: " + symbol));
+                .orElse(TickerDto.builder().symbol(symbol).build());
         return ResponseEntity.ok(ApiResponse.success(ticker));
     }
 

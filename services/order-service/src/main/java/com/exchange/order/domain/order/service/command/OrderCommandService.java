@@ -14,6 +14,7 @@ import com.exchange.order.domain.order.strategy.OrderStrategy;
 import com.exchange.order.domain.order.strategy.OrderStrategyFactory;
 import com.exchange.order.domain.order.validator.OrderValidator;
 import com.exchange.order.domain.outbox.service.OutboxService;
+import com.exchange.order.infrastructure.client.AccountServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
@@ -21,6 +22,8 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -43,6 +46,7 @@ public class OrderCommandService {
     private final OrderValidator orderValidator;
     private final ApplicationEventPublisher eventPublisher;
     private final OutboxService outboxService;
+    private final AccountServiceClient accountServiceClient;
 
     public OrderResponse createOrder(OrderRequest request) {
         // 1. 검증 체인
@@ -54,9 +58,21 @@ public class OrderCommandService {
         strategy.validate(request);
         strategy.preProcess(request);
 
-        // 3. 주문 저장
+        // 3. side 결정
         String side = (request.getSide() != null && !request.getSide().isBlank())
                 ? request.getSide().toUpperCase() : "BUY";
+
+        // 4. 매수 주문 시 증거금 동결 (account-service 호출)
+        BigDecimal orderAmount = request.getTotalPrice()
+                .multiply(BigDecimal.valueOf(request.getQuantity()));
+        if ("BUY".equalsIgnoreCase(side)) {
+            boolean frozen = accountServiceClient.freezeBalance(request.getCustomerName(), orderAmount);
+            if (!frozen) {
+                throw new IllegalStateException("잔고가 부족합니다. 증거금 동결 실패.");
+            }
+        }
+
+        // 5. 주문 저장
         Order order = Order.builder()
                 .customerName(request.getCustomerName())
                 .productName(request.getProductName())
@@ -64,21 +80,24 @@ public class OrderCommandService {
                 .totalPrice(request.getTotalPrice())
                 .orderType(orderType)
                 .side(side)
+                .stopPrice(request.getStopPrice())
                 .status(OrderStatus.PENDING)
                 .build();
         Order savedOrder = orderCommandPort.save(order);
 
         // 4. Outbox 이벤트 저장 (같은 트랜잭션 — 원자성 보장)
-        Map<String, Object> payload = Map.of(
-            "orderId", savedOrder.getId(),
-            "customerName", savedOrder.getCustomerName(),
-            "productName", savedOrder.getProductName(),
-            "quantity", savedOrder.getQuantity(),
-            "totalPrice", savedOrder.getTotalPrice(),
-            "orderType", savedOrder.getOrderType(),
-            "side", savedOrder.getSide(),
-            "status", savedOrder.getStatus()
-        );
+        HashMap<String, Object> payload = new HashMap<>();
+        payload.put("orderId", savedOrder.getId());
+        payload.put("customerName", savedOrder.getCustomerName());
+        payload.put("productName", savedOrder.getProductName());
+        payload.put("quantity", savedOrder.getQuantity());
+        payload.put("totalPrice", savedOrder.getTotalPrice());
+        payload.put("orderType", savedOrder.getOrderType());
+        payload.put("side", savedOrder.getSide());
+        payload.put("status", savedOrder.getStatus());
+        if (savedOrder.getStopPrice() != null) {
+            payload.put("stopPrice", savedOrder.getStopPrice());
+        }
         outboxService.save("Order", savedOrder.getId(),
                 "ORDER_CREATED", KafkaConfig.ORDER_TOPIC, payload);
 
@@ -98,6 +117,13 @@ public class OrderCommandService {
         OrderStatus previousStatus = order.getStatus();
         order.updateStatus(newStatus);
         Order updated = orderCommandPort.save(order);
+
+        // 취소 시 BUY 주문의 증거금 해제
+        if (newStatus == OrderStatus.CANCELLED && "BUY".equalsIgnoreCase(order.getSide())) {
+            BigDecimal orderAmount = order.getTotalPrice()
+                    .multiply(BigDecimal.valueOf(order.getQuantity()));
+            accountServiceClient.unfreezeBalance(order.getCustomerName(), orderAmount);
+        }
 
         // Outbox: 상태 변경 이벤트
         outboxService.save("Order", id, "ORDER_STATUS_CHANGED",

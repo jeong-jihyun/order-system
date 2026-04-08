@@ -42,7 +42,7 @@ market:
   websocket:
     topic-prefix: "/topic/ticker/"     # 클라이언트 구독 경로
   kafka:
-    order-topic: order-events
+    order-topic: order-status-events
     order-status-topic: order-status-events
 
 logging:

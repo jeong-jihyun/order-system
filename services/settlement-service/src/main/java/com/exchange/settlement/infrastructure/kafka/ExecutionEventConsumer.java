@@ -38,9 +38,11 @@ public class ExecutionEventConsumer {
             BigDecimal qty   = new BigDecimal(payload.get("executionQuantity").toString());
             LocalDateTime executedAt = LocalDateTime.parse(payload.get("executedAt").toString());
 
-            // username은 별도 조회 필요 — 현재는 orderId를 임시 사용 (account-service 연동 예정)
-            String buyerUsername  = "user-" + buyOrderId;
-            String sellerUsername = "user-" + sellOrderId;
+            // trading-engine에서 전달된 실제 username 사용
+            String buyerUsername  = payload.getOrDefault("buyerUsername", "").toString();
+            String sellerUsername = payload.getOrDefault("sellerUsername", "").toString();
+            if (buyerUsername.isBlank())  buyerUsername  = "unknown-buyer-" + buyOrderId;
+            if (sellerUsername.isBlank()) sellerUsername = "unknown-seller-" + sellOrderId;
 
             settlementService.processExecution(
                     buyOrderId, sellOrderId, symbol, price, qty, executedAt,

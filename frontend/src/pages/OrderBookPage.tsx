@@ -1,16 +1,25 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { orderBookApi, PriceLevel } from '@/api/orderBookApi'
-import LoadingSpinner from '@/components/common/LoadingSpinner'
+import { SYMBOLS, SYMBOL_MAP } from '@/constants/symbols'
+import Box from '@mui/material/Box'
+import Paper from '@mui/material/Paper'
+import Typography from '@mui/material/Typography'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import ToggleButton from '@mui/material/ToggleButton'
+import CircularProgress from '@mui/material/CircularProgress'
+import Alert from '@mui/material/Alert'
+import Table from '@mui/material/Table'
+import TableBody from '@mui/material/TableBody'
+import TableCell from '@mui/material/TableCell'
+import TableContainer from '@mui/material/TableContainer'
+import TableHead from '@mui/material/TableHead'
+import TableRow from '@mui/material/TableRow'
+import IconButton from '@mui/material/IconButton'
+import RefreshIcon from '@mui/icons-material/Refresh'
 
-const SYMBOLS = ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'GOOGL']
+
 const DEPTHS = [5, 10, 20]
-
-const fmtPrice = (v: number | null | undefined) => {
-  if (v == null) return '—'
-  const n = Number(v)
-  return isNaN(n) ? '—' : `₩${n.toLocaleString('ko-KR')}`
-}
 
 const fmt = (v: number | null | undefined) => {
   if (v == null) return '—'
@@ -28,137 +37,94 @@ const OrderBookPage = () => {
     refetchInterval: 3000,
   })
 
+  const maxQty = Math.max(
+    ...(snapshot?.asks ?? []).map((l) => Number(l.quantity) || 0),
+    ...(snapshot?.bids ?? []).map((l) => Number(l.quantity) || 0),
+    1,
+  )
+
   return (
-    <div>
-      <div style={styles.toolbar}>
-        <div style={styles.symbolGroup}>
+    <Box>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+        <ToggleButtonGroup exclusive size="small" value={symbol} onChange={(_, v) => v && setSymbol(v)}>
           {SYMBOLS.map((s) => (
-            <button
-              key={s}
-              style={{ ...styles.symbolBtn, ...(symbol === s ? styles.symbolBtnActive : {}) }}
-              onClick={() => setSymbol(s)}
-            >
-              {s}
-            </button>
+            <ToggleButton key={s} value={s} sx={{ px: 1.5 }}>{s}</ToggleButton>
           ))}
-        </div>
-        <div style={styles.depthGroup}>
-          <span style={{ fontSize: 13, color: '#666', marginRight: 8 }}>호가 depth:</span>
-          {DEPTHS.map((d) => (
-            <button
-              key={d}
-              style={{ ...styles.depthBtn, ...(depth === d ? styles.depthBtnActive : {}) }}
-              onClick={() => setDepth(d)}
-            >
-              {d}
-            </button>
-          ))}
-          <button style={styles.refreshBtn} onClick={() => refetch()}>↻ 새로고침</button>
-        </div>
-      </div>
+        </ToggleButtonGroup>
+
+        <Typography variant="body2" sx={{ color: '#787b86', ml: 'auto' }}>
+          {SYMBOL_MAP[symbol]?.name} 호가창
+        </Typography>
+
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Typography variant="caption" sx={{ color: '#787b86' }}>depth:</Typography>
+          <ToggleButtonGroup exclusive size="small" value={depth} onChange={(_, v) => v && setDepth(v)}>
+            {DEPTHS.map((d) => (
+              <ToggleButton key={d} value={d} sx={{ px: 1 }}>{d}</ToggleButton>
+            ))}
+          </ToggleButtonGroup>
+          <IconButton size="small" onClick={() => refetch()} sx={{ color: '#787b86' }}><RefreshIcon fontSize="small" /></IconButton>
+        </Box>
+      </Box>
 
       {isLoading ? (
-        <LoadingSpinner message="호가창 불러오는 중..." />
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}><CircularProgress /></Box>
       ) : isError ? (
-        <div style={styles.errorBox}>호가 데이터를 불러올 수 없습니다. (trading-engine 서비스 상태 확인 필요)</div>
+        <Alert severity="error">호가 데이터를 불러올 수 없습니다.</Alert>
       ) : !snapshot ? (
-        <div style={styles.empty}>데이터 없음</div>
+        <Paper sx={{ p: 4, textAlign: 'center', color: '#787b86' }}>데이터 없음</Paper>
       ) : (
-        <div style={styles.bookWrap}>
-          {/* 매도(asks) — 낮은 가격 우선으로 역순 표시 */}
-          <div style={styles.half}>
-            <h3 style={{ ...styles.side, color: '#1a73e8' }}>매도 (Ask)</h3>
-            <table style={styles.table}>
-              <thead>
-                <tr style={styles.thead}>
-                  <th style={styles.th}>가격</th>
-                  <th style={styles.th}>수량</th>
-                  <th style={styles.th}>건수</th>
-                </tr>
-              </thead>
-              <tbody>
-                {[...snapshot.asks].reverse().map((level: PriceLevel, idx: number) => (
-                  <tr key={idx} style={{ background: idx % 2 === 0 ? '#f0f6ff' : '#fff' }}>
-                    <td style={{ ...styles.td, color: '#1a73e8', fontWeight: 700 }}>
-                        {fmtPrice(level.price)}
-                      </td>
-                      <td style={styles.td}>{fmt(level.quantity)}</td>
-                      <td style={styles.td}>{level.orderCount ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 2, alignItems: 'start' }}>
+          {/* 매도 */}
+          <HalfBook title="매도 (Ask)" levels={[...snapshot.asks].reverse()} color="#ef5350" maxQty={maxQty} />
 
-          {/* 스프레드 표시 */}
+          {/* 스프레드 */}
           {snapshot.asks.length > 0 && snapshot.bids.length > 0 && (
-            <div style={styles.spread}>
-              <span style={styles.spreadLabel}>스프레드</span>
-              <span style={styles.spreadValue}>
-                {fmtPrice(
-                  (snapshot.asks[0].price != null && snapshot.bids[0].price != null)
-                    ? Number(snapshot.asks[0].price) - Number(snapshot.bids[0].price)
-                    : null
-                )}
-              </span>
-            </div>
+            <Paper sx={{ p: 2, textAlign: 'center', alignSelf: 'center', bgcolor: '#1e222d' }}>
+              <Typography variant="caption" sx={{ color: '#787b86' }}>스프레드</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 700, color: '#f5a623' }}>
+                ₩{fmt(Number(snapshot.asks[0].price) - Number(snapshot.bids[0].price))}
+              </Typography>
+            </Paper>
           )}
 
-          {/* 매수(bids) — 높은 가격 우선 */}
-          <div style={styles.half}>
-            <h3 style={{ ...styles.side, color: '#34a853' }}>매수 (Bid)</h3>
-            <table style={styles.table}>
-              <thead>
-                <tr style={styles.thead}>
-                  <th style={styles.th}>가격</th>
-                  <th style={styles.th}>수량</th>
-                  <th style={styles.th}>건수</th>
-                </tr>
-              </thead>
-              <tbody>
-                {snapshot.bids.map((level: PriceLevel, idx: number) => (
-                  <tr key={idx} style={{ background: idx % 2 === 0 ? '#f0fff4' : '#fff' }}>
-                    <td style={{ ...styles.td, color: '#34a853', fontWeight: 700 }}>
-                        {fmtPrice(level.price)}
-                      </td>
-                      <td style={styles.td}>{fmt(level.quantity)}</td>
-                      <td style={styles.td}>{level.orderCount ?? '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+          {/* 매수 */}
+          <HalfBook title="매수 (Bid)" levels={snapshot.bids} color="#26a69a" maxQty={maxQty} />
+        </Box>
       )}
-    </div>
+    </Box>
   )
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  toolbar: { display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 },
-  symbolGroup: { display: 'flex', gap: 8 },
-  symbolBtn: { padding: '6px 14px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  symbolBtnActive: { background: '#1a73e8', color: '#fff', border: '1px solid #1a73e8' },
-  depthGroup: { display: 'flex', alignItems: 'center', gap: 6 },
-  depthBtn: { padding: '4px 10px', border: '1px solid #ddd', borderRadius: 4, background: '#f5f5f5', cursor: 'pointer', fontSize: 12 },
-  depthBtnActive: { background: '#555', color: '#fff', border: '1px solid #555' },
-  refreshBtn: { padding: '4px 10px', border: '1px solid #ddd', borderRadius: 4, background: '#fff', cursor: 'pointer', fontSize: 12, marginLeft: 4 },
-  bookWrap: { display: 'grid', gridTemplateColumns: '1fr auto 1fr', gap: 16, alignItems: 'start' },
-  half: { background: '#fff', borderRadius: 10, overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.08)' },
-  side: { fontSize: 15, fontWeight: 700, padding: '12px 16px', margin: 0, borderBottom: '1px solid #f0f0f0' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  thead: { background: '#f9f9f9' },
-  th: { padding: '8px 12px', textAlign: 'right', fontWeight: 600, color: '#555' },
-  td: { padding: '8px 12px', textAlign: 'right', borderBottom: '1px solid #f5f5f5' },
-  spread: {
-    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-    background: '#fff', borderRadius: 10, padding: '16px 20px',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  },
-  spreadLabel: { fontSize: 11, color: '#888', marginBottom: 4 },
-  spreadValue: { fontSize: 18, fontWeight: 700, color: '#f5a623' },
-  errorBox: { background: '#fff3f3', color: '#c00', border: '1px solid #fcc', borderRadius: 8, padding: '16px 20px', fontSize: 14 },
-  empty: { color: '#888', textAlign: 'center', padding: 40 },
-}
+const HalfBook = ({ title, levels, color, maxQty }: { title: string; levels: PriceLevel[]; color: string; maxQty: number }) => (
+  <TableContainer component={Paper} sx={{ bgcolor: '#1e222d' }}>
+    <Typography sx={{ p: 1.5, fontWeight: 700, fontSize: 14, color, borderBottom: '1px solid #2a2e39' }}>{title}</Typography>
+    <Table size="small">
+      <TableHead>
+        <TableRow>
+          <TableCell>가격</TableCell>
+          <TableCell align="right">수량</TableCell>
+          <TableCell align="right">건수</TableCell>
+          <TableCell sx={{ width: 80 }} />
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {levels.map((lv, i) => {
+          const pct = Math.min(100, (Number(lv.quantity) / maxQty) * 100)
+          return (
+            <TableRow key={i} sx={{ '&:hover': { bgcolor: '#262b3a' } }}>
+              <TableCell sx={{ color, fontWeight: 700 }}>₩{fmt(lv.price)}</TableCell>
+              <TableCell align="right">{fmt(lv.quantity)}</TableCell>
+              <TableCell align="right">{lv.orderCount ?? '—'}</TableCell>
+              <TableCell sx={{ p: 0 }}>
+                <Box sx={{ height: 14, width: `${pct}%`, bgcolor: color, opacity: 0.25, borderRadius: 0.5, ml: 'auto' }} />
+              </TableCell>
+            </TableRow>
+          )
+        })}
+      </TableBody>
+    </Table>
+  </TableContainer>
+)
 
 export default OrderBookPage

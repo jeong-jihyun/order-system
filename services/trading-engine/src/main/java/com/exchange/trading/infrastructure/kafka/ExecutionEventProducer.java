@@ -36,7 +36,9 @@ public class ExecutionEventProducer {
                 "executionQuantity",result.getExecutionQuantity(),
                 "executedAt",       result.getExecutedAt().toString(),
                 "buyFilled",        result.isBuyFilled(),
-                "sellFilled",       result.isSellFilled()
+                "sellFilled",       result.isSellFilled(),
+                "buyerUsername",    result.getBuyerUsername() != null ? result.getBuyerUsername() : "",
+                "sellerUsername",   result.getSellerUsername() != null ? result.getSellerUsername() : ""
             );
             String json = objectMapper.writeValueAsString(payload);
             kafkaTemplate.send(executionTopic,

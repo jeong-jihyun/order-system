@@ -35,6 +35,9 @@ public class OrderRequest {
 
     private OrderType orderType;
 
+    /** STOP 주문 트리거 가격 (STOP_LOSS/STOP_LIMIT 전용) */
+    private BigDecimal stopPrice;
+
     /** 주문 방향: BUY(매수) | SELL(매도). 기본값 BUY */
     @Builder.Default
     private String side = "BUY";

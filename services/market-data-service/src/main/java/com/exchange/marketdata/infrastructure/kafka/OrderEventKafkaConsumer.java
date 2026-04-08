@@ -15,8 +15,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Kafka Consumer — order-events 토픽에서 체결 이벤트 수신
- * COMPLETED 상태의 주문 → 시세 및 OHLCV 업데이트
+ * Kafka Consumer — order-status-events 토픽에서 체결 이벤트 수신
+ * trading-engine이 매칭 완료 후 발행하는 ExecutionResult 이벤트 처리
  */
 @Slf4j
 @Component
@@ -29,21 +29,23 @@ public class OrderEventKafkaConsumer {
 
     private static final List<String> OHLCV_INTERVALS = List.of("1m", "5m", "15m", "1h", "1d");
 
-    @KafkaListener(topics = "${market.kafka.order-topic:order-events}",
+    @KafkaListener(topics = "${market.kafka.order-topic:order-status-events}",
                    groupId = "market-data-group")
     public void consume(String message) {
         try {
-            // Outbox payload는 Map 구조로 직렬화됨
             Map<?, ?> payload = objectMapper.readValue(message, Map.class);
-            String status = (String) payload.get("status");
 
-            // COMPLETED 주문만 시세 업데이트에 반영
-            if (!"COMPLETED".equals(status)) return;
+            // order-status-events의 체결 이벤트 형식: symbol, executionPrice, executionQuantity
+            String symbol = (String) payload.get("symbol");
+            if (symbol == null) return;
 
-            String symbol     = (String) payload.get("productName");
-            BigDecimal price  = new BigDecimal(payload.get("totalPrice").toString());
-            Long quantity     = Long.valueOf(payload.get("quantity").toString());
-            LocalDateTime now = LocalDateTime.now();
+            Object priceRaw = payload.get("executionPrice");
+            Object qtyRaw   = payload.get("executionQuantity");
+            if (priceRaw == null || qtyRaw == null) return;
+
+            BigDecimal price    = new BigDecimal(priceRaw.toString());
+            Long quantity       = new BigDecimal(qtyRaw.toString()).longValue();
+            LocalDateTime now   = LocalDateTime.now();
 
             // 티커 업데이트 + WebSocket 브로드캐스트
             tickerService.updatePrice(symbol, price, quantity);

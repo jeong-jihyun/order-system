@@ -1,242 +1,250 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { orderApi } from '@/api/orderApi'
+import { marketApi } from '@/api/marketApi'
 import { OrderRequest, OrderSide } from '@/types/order'
+import { SYMBOLS, SYMBOL_MAP } from '@/constants/symbols'
+import { useAuth } from '@/context/AuthContext'
+import Box from '@mui/material/Box'
+import Paper from '@mui/material/Paper'
+import Typography from '@mui/material/Typography'
+import Button from '@mui/material/Button'
+import ButtonGroup from '@mui/material/ButtonGroup'
+import TextField from '@mui/material/TextField'
+import MenuItem from '@mui/material/MenuItem'
+import Alert from '@mui/material/Alert'
+import Divider from '@mui/material/Divider'
+import IconButton from '@mui/material/IconButton'
+import AddIcon from '@mui/icons-material/Add'
+import RemoveIcon from '@mui/icons-material/Remove'
+import TrendingUpIcon from '@mui/icons-material/TrendingUp'
+import TrendingDownIcon from '@mui/icons-material/TrendingDown'
 
-/**
- * [Week 3 실습 포인트]
- * - useReducer 대신 useState로 시작 → Week 3에서 useReducer로 리팩터링 예정
- * - useMutation: 서버에 데이터 전송 + 성공 시 목록 캐시 무효화
- * - 로딩/에러 상태 UI 처리
- */
 const OrderCreatePage = () => {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { user } = useAuth()
 
-  const [form, setForm] = useState<OrderRequest>({
-    customerName: '',
-    productName: '',
-    quantity: 1,
-    totalPrice: 0,
-    side: 'BUY',
+  const [side, setSide] = useState<OrderSide>('BUY')
+  const [symbol, setSymbol] = useState('AAPL')
+  const [orderType, setOrderType] = useState<'LIMIT' | 'MARKET'>('LIMIT')
+  const [quantity, setQuantity] = useState(1)
+  const [price, setPrice] = useState(0)
+  const [error, setError] = useState('')
+
+  const { data: ticker } = useQuery({
+    queryKey: ['ticker', symbol],
+    queryFn: () => marketApi.getTicker(symbol),
+    refetchInterval: 5000,
   })
 
-  const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof OrderRequest, string>>>({})
+  const currentPrice = ticker?.price ?? null
+  const changeRate = ticker?.changeRate ?? null
+  const isUp = changeRate != null && Number(changeRate) >= 0
+
+  const effectivePrice = orderType === 'MARKET' ? (currentPrice ?? 0) : price
+  const totalAmount = effectivePrice > 0 ? effectivePrice * quantity : 0
 
   const createMutation = useMutation({
-    mutationFn: orderApi.create,
+    mutationFn: (req: OrderRequest) => orderApi.create(req),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['orders'] })
       navigate('/')
     },
+    onError: (e: Error) => setError(e.message),
   })
 
-  // ── 유효성 검사 ─────────────────────────────────
-  const validate = (): boolean => {
-    const errors: Partial<Record<keyof OrderRequest, string>> = {}
-    if (!form.customerName.trim()) errors.customerName = '고객명을 입력해주세요.'
-    if (!form.productName.trim()) errors.productName = '상품명을 입력해주세요.'
-    if (form.quantity < 1) errors.quantity = '수량은 1 이상이어야 합니다.'
-    if (form.totalPrice <= 0) errors.totalPrice = '금액은 0보다 커야 합니다.'
-    setFieldErrors(errors)
-    return Object.keys(errors).length === 0
+  const tick = currentPrice ? Math.max(1, Math.round(Number(currentPrice) * 0.001)) : 50
+
+  const handleSubmit = () => {
+    if (!user) return
+    if (quantity < 1) { setError('수량은 1 이상이어야 합니다.'); return }
+    if (orderType === 'LIMIT' && price <= 0) { setError('지정가를 입력해주세요.'); return }
+    setError('')
+    createMutation.mutate({
+      customerName: user.username,
+      productName: symbol,
+      quantity,
+      totalPrice: effectivePrice,
+      side,
+      orderType,
+    } as any)
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target
-    setForm((prev) => ({
-      ...prev,
-      [name]: name === 'quantity' || name === 'totalPrice' ? Number(value) : value,
-    }))
-    // 입력 시 해당 필드 에러 제거
-    setFieldErrors((prev) => ({ ...prev, [name]: undefined }))
-  }
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!validate()) return
-    createMutation.mutate(form)
-  }
+  const isBuy = side === 'BUY'
+  const accentColor = isBuy ? '#26a69a' : '#ef5350'
 
   return (
-    <div style={styles.container}>
-      <h2 style={styles.title}>새 주문 등록</h2>
+    <Box sx={{ maxWidth: 440, mx: 'auto' }}>
+      <Paper sx={{ bgcolor: '#1e222d', border: '1px solid #2a2e39', overflow: 'hidden' }}>
+        {/* 매수 / 매도 탭 */}
+        <Box sx={{ display: 'flex' }}>
+          <Button
+            fullWidth
+            onClick={() => setSide('BUY')}
+            sx={{
+              py: 1.5,
+              borderRadius: 0,
+              fontSize: 16,
+              fontWeight: 700,
+              color: side === 'BUY' ? '#26a69a' : '#787b86',
+              bgcolor: side === 'BUY' ? 'rgba(38,166,154,0.1)' : 'transparent',
+              borderBottom: side === 'BUY' ? '3px solid #26a69a' : '3px solid transparent',
+            }}
+          >
+            매수
+          </Button>
+          <Button
+            fullWidth
+            onClick={() => setSide('SELL')}
+            sx={{
+              py: 1.5,
+              borderRadius: 0,
+              fontSize: 16,
+              fontWeight: 700,
+              color: side === 'SELL' ? '#ef5350' : '#787b86',
+              bgcolor: side === 'SELL' ? 'rgba(239,83,80,0.1)' : 'transparent',
+              borderBottom: side === 'SELL' ? '3px solid #ef5350' : '3px solid transparent',
+            }}
+          >
+            매도
+          </Button>
+        </Box>
 
-      {/* 서버 에러 표시 */}
-      {createMutation.isError && (
-        <div style={styles.serverError}>
-          ⚠️ {(createMutation.error as Error).message}
-        </div>
-      )}
+        <Box sx={{ p: 2.5 }}>
+          {/* 종목 선택 + 현재가 */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 2 }}>
+            <TextField
+              select
+              label="종목"
+              value={symbol}
+              onChange={(e) => { setSymbol(e.target.value); setPrice(0) }}
+              sx={{ minWidth: 160 }}
+            >
+              {SYMBOLS.map((s) => (
+                <MenuItem key={s} value={s}>
+                  {s} — {SYMBOL_MAP[s].name}
+                </MenuItem>
+              ))}
+            </TextField>
 
-      <form onSubmit={handleSubmit} style={styles.form}>
-        {/* 매수/매도 선택 */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <label style={styles.label}>주문 방향</label>
-          <div style={{ display: 'flex', gap: 0, borderRadius: 4, overflow: 'hidden', border: '1px solid #ccc' }}>
-            {(['BUY', 'SELL'] as OrderSide[]).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setForm((prev) => ({ ...prev, side: s }))}
-                style={{
-                  flex: 1,
-                  padding: '10px 0',
-                  border: 'none',
-                  fontSize: 14,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  background: form.side === s
-                    ? (s === 'BUY' ? '#1a73e8' : '#d93025')
-                    : '#f5f5f5',
-                  color: form.side === s ? '#fff' : '#888',
-                  transition: 'background 0.2s, color 0.2s',
-                }}
+            <Box sx={{ ml: 'auto', textAlign: 'right' }}>
+              <Typography variant="h6" sx={{ fontWeight: 800, color: currentPrice ? accentColor : '#787b86', lineHeight: 1.2 }}>
+                {currentPrice != null ? `₩${Number(currentPrice).toLocaleString()}` : '—'}
+              </Typography>
+              {changeRate != null && (
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 0.3 }}>
+                  {isUp ? <TrendingUpIcon sx={{ fontSize: 14, color: '#26a69a' }} /> : <TrendingDownIcon sx={{ fontSize: 14, color: '#ef5350' }} />}
+                  <Typography variant="caption" sx={{ color: isUp ? '#26a69a' : '#ef5350', fontWeight: 600 }}>
+                    {Math.abs(Number(changeRate)).toFixed(2)}%
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          </Box>
+
+          {/* 주문 유형 */}
+          <Box sx={{ mb: 2 }}>
+            <Typography variant="caption" sx={{ color: '#787b86', mb: 0.5, display: 'block' }}>주문 유형</Typography>
+            <ButtonGroup fullWidth size="small">
+              <Button
+                variant={orderType === 'LIMIT' ? 'contained' : 'outlined'}
+                onClick={() => setOrderType('LIMIT')}
+                sx={{ borderColor: '#363a45' }}
               >
-                {s === 'BUY' ? '매수 (BUY)' : '매도 (SELL)'}
-              </button>
-            ))}
-          </div>
-        </div>
+                지정가
+              </Button>
+              <Button
+                variant={orderType === 'MARKET' ? 'contained' : 'outlined'}
+                onClick={() => setOrderType('MARKET')}
+                sx={{ borderColor: '#363a45' }}
+              >
+                시장가
+              </Button>
+            </ButtonGroup>
+          </Box>
 
-        <Field
-          label="고객명"
-          name="customerName"
-          type="text"
-          value={form.customerName}
-          onChange={handleChange}
-          error={fieldErrors.customerName}
-          placeholder="홍길동"
-        />
-        <Field
-          label="상품명"
-          name="productName"
-          type="text"
-          value={form.productName}
-          onChange={handleChange}
-          error={fieldErrors.productName}
-          placeholder="노트북"
-        />
-        <Field
-          label="수량"
-          name="quantity"
-          type="number"
-          value={String(form.quantity)}
-          onChange={handleChange}
-          error={fieldErrors.quantity}
-          placeholder="1"
-        />
-        <Field
-          label="총 금액 (원)"
-          name="totalPrice"
-          type="number"
-          value={String(form.totalPrice)}
-          onChange={handleChange}
-          error={fieldErrors.totalPrice}
-          placeholder="100000"
-        />
+          {/* 수량 */}
+          <TextField
+            fullWidth
+            label="수량"
+            type="number"
+            value={quantity}
+            onChange={(e) => setQuantity(Math.max(1, parseInt(e.target.value) || 1))}
+            slotProps={{ input: { endAdornment: <Typography sx={{ color: '#787b86', fontSize: 13 }}>주</Typography> } }}
+            sx={{ mb: 2 }}
+          />
 
-        <div style={styles.buttonRow}>
-          <button
-            type="button"
-            style={styles.cancelBtn}
+          {/* 가격 */}
+          {orderType === 'LIMIT' ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 2 }}>
+              <IconButton size="small" sx={{ border: '1px solid #363a45' }} onClick={() => setPrice((p) => Math.max(0, p - tick))}>
+                <RemoveIcon fontSize="small" />
+              </IconButton>
+              <TextField
+                fullWidth
+                label="가격"
+                type="number"
+                value={price}
+                onChange={(e) => setPrice(Math.max(0, Number(e.target.value)))}
+                slotProps={{ htmlInput: { style: { textAlign: 'center' } } }}
+              />
+              <IconButton size="small" sx={{ border: '1px solid #363a45' }} onClick={() => setPrice((p) => p + tick)}>
+                <AddIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          ) : (
+            <Box sx={{ mb: 2, p: 1.5, bgcolor: '#262b3a', borderRadius: 1, textAlign: 'center' }}>
+              <Typography variant="body2" sx={{ color: '#787b86' }}>시장가 (자동)</Typography>
+            </Box>
+          )}
+
+          <Divider sx={{ mb: 2 }} />
+
+          {/* 주문 금액 */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 2 }}>
+            <Typography variant="body2" sx={{ color: '#787b86' }}>주문 금액</Typography>
+            <Typography variant="body1" sx={{ fontWeight: 700, color: '#d1d4dc' }}>
+              {totalAmount > 0 ? `₩${totalAmount.toLocaleString()}` : '—'}
+            </Typography>
+          </Box>
+
+          {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+          {/* 주문 버튼 */}
+          <Button
+            fullWidth
+            variant="contained"
+            size="large"
+            onClick={handleSubmit}
+            disabled={createMutation.isPending}
+            sx={{
+              py: 1.5,
+              fontWeight: 700,
+              fontSize: 16,
+              bgcolor: accentColor,
+              '&:hover': { bgcolor: accentColor, filter: 'brightness(1.15)' },
+            }}
+          >
+            {createMutation.isPending
+              ? '처리 중...'
+              : `${isBuy ? '매수' : '매도'} 주문 (${symbol})`}
+          </Button>
+
+          <Button
+            fullWidth
+            variant="text"
+            size="small"
             onClick={() => navigate('/')}
+            sx={{ mt: 1, color: '#787b86' }}
           >
             취소
-          </button>
-          <button
-            type="submit"
-            style={{ ...styles.submitBtn, opacity: createMutation.isPending ? 0.7 : 1 }}
-            disabled={createMutation.isPending}
-          >
-            {createMutation.isPending ? '등록 중...' : '주문 등록'}
-          </button>
-        </div>
-      </form>
-    </div>
+          </Button>
+        </Box>
+      </Paper>
+    </Box>
   )
-}
-
-// ── 재사용 가능한 입력 필드 컴포넌트 ────────────────
-interface FieldProps {
-  label: string
-  name: string
-  type: string
-  value: string
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
-  error?: string
-  placeholder?: string
-}
-
-const Field = ({ label, name, type, value, onChange, error, placeholder }: FieldProps) => (
-  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-    <label style={styles.label}>{label}</label>
-    <input
-      name={name}
-      type={type}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      style={{ ...styles.input, borderColor: error ? '#d93025' : '#ccc' }}
-      min={type === 'number' ? 0 : undefined}
-    />
-    {error && <span style={styles.errorText}>{error}</span>}
-  </div>
-)
-
-const styles: Record<string, React.CSSProperties> = {
-  container: {
-    maxWidth: 480,
-    margin: '0 auto',
-    background: '#fff',
-    borderRadius: 8,
-    padding: 32,
-    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-  },
-  title: { fontSize: 20, fontWeight: 700, marginBottom: 24 },
-  serverError: {
-    background: '#fce8e6',
-    color: '#d93025',
-    padding: '12px 16px',
-    borderRadius: 4,
-    marginBottom: 16,
-    fontSize: 14,
-  },
-  form: { display: 'flex', flexDirection: 'column', gap: 18 },
-  label: { fontSize: 13, fontWeight: 600, color: '#444' },
-  input: {
-    padding: '10px 12px',
-    borderRadius: 4,
-    border: '1px solid #ccc',
-    fontSize: 14,
-    outline: 'none',
-    transition: 'border-color 0.2s',
-  },
-  errorText: { fontSize: 12, color: '#d93025' },
-  buttonRow: {
-    display: 'flex',
-    gap: 12,
-    marginTop: 8,
-    justifyContent: 'flex-end',
-  },
-  cancelBtn: {
-    padding: '10px 20px',
-    background: '#fff',
-    border: '1px solid #ccc',
-    borderRadius: 4,
-    fontSize: 14,
-    color: '#444',
-  },
-  submitBtn: {
-    padding: '10px 24px',
-    background: '#1a73e8',
-    color: '#fff',
-    border: 'none',
-    borderRadius: 4,
-    fontSize: 14,
-    fontWeight: 600,
-  },
 }
 
 export default OrderCreatePage

@@ -23,4 +23,6 @@ public class ExecutionResult {
     private final LocalDateTime executedAt;
     private final boolean buyFilled;   // 매수 주문 완전 체결 여부
     private final boolean sellFilled;  // 매도 주문 완전 체결 여부
+    private final String buyerUsername;   // 매수자 username
+    private final String sellerUsername;  // 매도자 username
 }

@@ -1,29 +1,31 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { marketApi, TickerDto, OhlcvDto } from '@/api/marketApi'
-import LoadingSpinner from '@/components/common/LoadingSpinner'
+import { SYMBOLS, SYMBOL_MAP } from '@/constants/symbols'
+import { createChart, IChartApi, ISeriesApi, CandlestickData, HistogramData, Time, ColorType } from 'lightweight-charts'
+import Box from '@mui/material/Box'
+import Paper from '@mui/material/Paper'
+import Typography from '@mui/material/Typography'
+import ToggleButtonGroup from '@mui/material/ToggleButtonGroup'
+import ToggleButton from '@mui/material/ToggleButton'
+import Chip from '@mui/material/Chip'
+import CircularProgress from '@mui/material/CircularProgress'
+import TrendingUpIcon from '@mui/icons-material/TrendingUp'
+import TrendingDownIcon from '@mui/icons-material/TrendingDown'
 
-const SYMBOLS = ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'GOOGL']
-
-/** null | undefined | NaN 을 '—'으로, 그 외 숫자는 toLocaleString() 포맷 */
-const fmt = (v: number | null | undefined, opts?: Intl.NumberFormatOptions): string => {
+const fmt = (v: number | null | undefined) => {
   if (v == null) return '—'
   const n = Number(v)
-  if (isNaN(n)) return '—'
-  return n.toLocaleString('ko-KR', opts)
+  return isNaN(n) ? '—' : `₩${n.toLocaleString('ko-KR')}`
 }
 
-const fmtPrice = (v: number | null | undefined) => {
-  const s = fmt(v)
-  return s === '—' ? '—' : `₩${s}`
-}
-
-const fmtFixed = (v: number | null | undefined, digits = 2): string => {
+const fmtPct = (v: number | null | undefined) => {
   if (v == null) return '—'
   const n = Number(v)
-  if (isNaN(n)) return '—'
-  return n.toFixed(digits)
+  return isNaN(n) ? '—' : `${Math.abs(n).toFixed(2)}%`
 }
+
+const INTERVALS = ['1m', '5m', '15m', '1h', '1d']
 
 const MarketPage = () => {
   const [symbol, setSymbol] = useState('AAPL')
@@ -31,21 +33,23 @@ const MarketPage = () => {
   const [liveTicker, setLiveTicker] = useState<TickerDto | null>(null)
   const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
   const wsRef = useRef<WebSocket | null>(null)
+  const chartContainerRef = useRef<HTMLDivElement | null>(null)
+  const chartRef = useRef<IChartApi | null>(null)
+  const candleSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null)
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null)
 
-  // REST 시세 조회 (최초 로드 + fallback)
   const { data: ticker, isLoading: tickerLoading } = useQuery({
     queryKey: ['ticker', symbol],
     queryFn: () => marketApi.getTicker(symbol),
     refetchInterval: 5000,
   })
 
-  // OHLCV 데이터
-  const { data: ohlcvList, isLoading: ohlcvLoading } = useQuery({
+  const { data: ohlcvList } = useQuery({
     queryKey: ['ohlcv', symbol, interval],
-    queryFn: () => marketApi.getOhlcv(symbol, interval, 20),
+    queryFn: () => marketApi.getOhlcv(symbol, interval, 100),
   })
 
-  // STOMP WebSocket 실시간 구독 (SockJS + STOMP 없이 WebSocket raw)
+  // WebSocket
   useEffect(() => {
     const wsUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/websocket`
     let ws: WebSocket
@@ -56,29 +60,23 @@ const MarketPage = () => {
 
       ws.onopen = () => {
         setWsStatus('connected')
-        // STOMP CONNECT frame
         ws.send('CONNECT\naccept-version:1.2\nheart-beat:0,0\n\n\0')
       }
 
       ws.onmessage = (evt) => {
         const frame = evt.data as string
         if (frame.startsWith('CONNECTED')) {
-          // STOMP SUBSCRIBE
           ws.send(`SUBSCRIBE\nid:sub-0\ndestination:/topic/ticker/${symbol}\n\n\0`)
-          // 구독 요청 전송
           ws.send(`SEND\ndestination:/app/subscribe/${symbol}\ncontent-length:0\n\n\0`)
         } else if (frame.startsWith('MESSAGE')) {
           const bodyStart = frame.indexOf('\n\n') + 2
           const body = frame.slice(bodyStart).replace('\0', '')
           try {
             const data = JSON.parse(body) as TickerDto
-            // price가 없는 빈 ticker(Redis 데이터 없을 때 서버가 symbol만 반환)는 무시
             if (data.price != null && !isNaN(Number(data.price))) {
               setLiveTicker(data)
             }
-          } catch {
-            // ignore parse errors
-          }
+          } catch { /* ignore */ }
         }
       }
 
@@ -88,160 +86,183 @@ const MarketPage = () => {
       setWsStatus('disconnected')
     }
 
-    return () => {
-      wsRef.current?.close()
-    }
+    return () => { wsRef.current?.close() }
   }, [symbol])
 
+  // Chart 생성 & 업데이트
+  useEffect(() => {
+    if (!chartContainerRef.current) return
+
+    // 기존 차트 제거
+    if (chartRef.current) {
+      chartRef.current.remove()
+      chartRef.current = null
+    }
+
+    const chart = createChart(chartContainerRef.current, {
+      width: chartContainerRef.current.clientWidth,
+      height: 400,
+      layout: {
+        background: { type: ColorType.Solid, color: '#131722' },
+        textColor: '#787b86',
+        fontFamily: '"Noto Sans KR", Roboto, sans-serif',
+        fontSize: 11,
+      },
+      grid: {
+        vertLines: { color: '#1e222d' },
+        horzLines: { color: '#1e222d' },
+      },
+      crosshair: {
+        vertLine: { color: '#363a45', width: 1, style: 2, labelBackgroundColor: '#2a2e39' },
+        horzLine: { color: '#363a45', width: 1, style: 2, labelBackgroundColor: '#2a2e39' },
+      },
+      rightPriceScale: { borderColor: '#2a2e39' },
+      timeScale: { borderColor: '#2a2e39', timeVisible: true, secondsVisible: false },
+    })
+    chartRef.current = chart
+
+    const candleSeries = chart.addCandlestickSeries({
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderDownColor: '#ef5350',
+      borderUpColor: '#26a69a',
+      wickDownColor: '#ef5350',
+      wickUpColor: '#26a69a',
+    })
+    candleSeriesRef.current = candleSeries
+
+    const volumeSeries = chart.addHistogramSeries({
+      priceFormat: { type: 'volume' },
+      priceScaleId: '',
+    })
+    volumeSeries.priceScale().applyOptions({
+      scaleMargins: { top: 0.8, bottom: 0 },
+    })
+    volumeSeriesRef.current = volumeSeries
+
+    // 데이터 설정
+    if (ohlcvList && ohlcvList.length > 0) {
+      const candles: CandlestickData<Time>[] = ohlcvList.map((d: OhlcvDto) => ({
+        time: (new Date(d.openTime).getTime() / 1000) as Time,
+        open: Number(d.open),
+        high: Number(d.high),
+        low: Number(d.low),
+        close: Number(d.close),
+      }))
+
+      const volumes: HistogramData<Time>[] = ohlcvList.map((d: OhlcvDto) => ({
+        time: (new Date(d.openTime).getTime() / 1000) as Time,
+        value: Number(d.volume) || 0,
+        color: Number(d.close) >= Number(d.open) ? 'rgba(38,166,154,0.3)' : 'rgba(239,83,80,0.3)',
+      }))
+
+      candleSeries.setData(candles)
+      volumeSeries.setData(volumes)
+      chart.timeScale().fitContent()
+    }
+
+    // resize
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        chart.applyOptions({ width: entry.contentRect.width })
+      }
+    })
+    observer.observe(chartContainerRef.current)
+
+    return () => {
+      observer.disconnect()
+      chart.remove()
+      chartRef.current = null
+    }
+  }, [ohlcvList, symbol, interval])
+
   const displayTicker = liveTicker ?? ticker
+  const priceNum = displayTicker?.price != null ? Number(displayTicker.price) : null
+  const changeRateNum = displayTicker?.changeRate != null ? Number(displayTicker.changeRate) : null
+  const isUp = changeRateNum != null && changeRateNum >= 0
 
   return (
-    <div>
+    <Box>
       {/* 종목 선택 */}
-      <div style={styles.toolbar}>
-        <div style={styles.symbolGroup}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2, flexWrap: 'wrap' }}>
+        <ToggleButtonGroup exclusive size="small" value={symbol} onChange={(_, v) => { if (v) { setSymbol(v); setLiveTicker(null) } }}>
           {SYMBOLS.map((s) => (
-            <button
-              key={s}
-              style={{ ...styles.symbolBtn, ...(symbol === s ? styles.symbolBtnActive : {}) }}
-              onClick={() => { setSymbol(s); setLiveTicker(null) }}
-            >
+            <ToggleButton key={s} value={s} sx={{ px: 1.5 }}>
               {s}
-            </button>
+              <Typography variant="caption" sx={{ ml: 0.5, color: '#787b86', display: { xs: 'none', sm: 'inline' } }}>
+                {SYMBOL_MAP[s].name}
+              </Typography>
+            </ToggleButton>
           ))}
-        </div>
-        <span style={{ ...styles.wsBadge, background: wsStatus === 'connected' ? '#34a853' : wsStatus === 'connecting' ? '#f5a623' : '#999' }}>
-          {wsStatus === 'connected' ? '● 실시간' : wsStatus === 'connecting' ? '○ 연결 중' : '○ 오프라인'}
-        </span>
-      </div>
+        </ToggleButtonGroup>
+
+        <Chip
+          label={wsStatus === 'connected' ? '● 실시간' : wsStatus === 'connecting' ? '○ 연결 중' : '○ 오프라인'}
+          size="small"
+          sx={{
+            ml: 'auto',
+            bgcolor: wsStatus === 'connected' ? '#26a69a' : wsStatus === 'connecting' ? '#f5a623' : '#4c525e',
+            color: '#fff',
+            fontWeight: 600,
+          }}
+        />
+      </Box>
 
       {/* 시세 카드 */}
       {tickerLoading ? (
-        <LoadingSpinner message="시세 불러오는 중..." />
+        <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
       ) : displayTicker ? (
-        <div style={styles.tickerCard}>
-          <div style={styles.tickerLeft}>
-            <div style={styles.tickerSymbol}>{displayTicker.symbol}</div>
-            <div style={styles.tickerPrice}>
-              {fmtPrice(displayTicker.price)}
-            </div>
-            <div style={{
-              ...styles.tickerChange,
-              color: (displayTicker.changeRate ?? 0) >= 0 ? '#34a853' : '#d93025',
-            }}>
-              {(displayTicker.changeRate ?? 0) >= 0 ? '▲' : '▼'}{' '}
-              {fmtPrice(displayTicker.change != null ? Math.abs(Number(displayTicker.change)) : null)}{' '}
-              ({fmtFixed(displayTicker.changeRate != null ? Math.abs(Number(displayTicker.changeRate)) : null)}%)
-            </div>
-          </div>
-          <div style={styles.tickerRight}>
-            <TickerItem label="시가" value={displayTicker.open} />
-            <TickerItem label="고가" value={displayTicker.high} color="#d93025" />
-            <TickerItem label="저가" value={displayTicker.low} color="#1a73e8" />
-            <TickerItem label="전일 종가" value={displayTicker.prevClose} />
-            <TickerItem label="거래량" value={displayTicker.volume} noFormat />
-          </div>
-        </div>
+        <Paper sx={{ p: 2.5, mb: 2, bgcolor: '#1e222d', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2 }}>
+          <Box>
+            <Typography variant="caption" sx={{ color: '#787b86' }}>{displayTicker.symbol} — {SYMBOL_MAP[displayTicker.symbol]?.name}</Typography>
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5 }}>
+              <Typography variant="h4" sx={{ fontWeight: 800, color: isUp ? '#26a69a' : '#ef5350' }}>
+                {fmt(priceNum)}
+              </Typography>
+              {changeRateNum != null && (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3 }}>
+                  {isUp ? <TrendingUpIcon sx={{ fontSize: 18, color: '#26a69a' }} /> : <TrendingDownIcon sx={{ fontSize: 18, color: '#ef5350' }} />}
+                  <Typography sx={{ fontSize: 15, fontWeight: 600, color: isUp ? '#26a69a' : '#ef5350' }}>
+                    {fmt(displayTicker.change != null ? Math.abs(Number(displayTicker.change)) : null)} ({fmtPct(changeRateNum)})
+                  </Typography>
+                </Box>
+              )}
+            </Box>
+          </Box>
+
+          <Box sx={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+            <MiniStat label="시가" value={fmt(displayTicker.open)} />
+            <MiniStat label="고가" value={fmt(displayTicker.high)} color="#ef5350" />
+            <MiniStat label="저가" value={fmt(displayTicker.low)} color="#26a69a" />
+            <MiniStat label="전일종가" value={fmt(displayTicker.prevClose)} />
+            <MiniStat label="거래량" value={displayTicker.volume != null ? Number(displayTicker.volume).toLocaleString() : '—'} />
+          </Box>
+        </Paper>
       ) : (
-        <div style={styles.noData}>시세 데이터가 없습니다.</div>
+        <Paper sx={{ p: 4, mb: 2, textAlign: 'center', color: '#787b86' }}>시세 데이터가 없습니다.</Paper>
       )}
 
-      {/* OHLCV 테이블 */}
-      <div style={styles.section}>
-        <div style={styles.sectionHeader}>
-          <h3 style={styles.sectionTitle}>캔들 데이터 (OHLCV)</h3>
-          <div style={styles.intervalGroup}>
-            {['1m', '5m', '15m', '1h', '1d'].map((iv) => (
-              <button
-                key={iv}
-                style={{ ...styles.intervalBtn, ...(interval === iv ? styles.intervalBtnActive : {}) }}
-                onClick={() => setInterval(iv)}
-              >
-                {iv}
-              </button>
+      {/* 차트 */}
+      <Paper sx={{ p: 0, mb: 2, overflow: 'hidden', bgcolor: '#131722' }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', px: 2, py: 1.2, borderBottom: '1px solid #2a2e39' }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, color: '#d1d4dc' }}>캔들 차트</Typography>
+          <ToggleButtonGroup exclusive size="small" value={interval} onChange={(_, v) => v && setInterval(v)}>
+            {INTERVALS.map((iv) => (
+              <ToggleButton key={iv} value={iv} sx={{ px: 1, fontSize: 11 }}>{iv}</ToggleButton>
             ))}
-          </div>
-        </div>
-
-        {ohlcvLoading ? (
-          <LoadingSpinner message="캔들 데이터 불러오는 중..." />
-        ) : (
-          <div style={styles.tableWrap}>
-            <table style={styles.table}>
-              <thead>
-                <tr style={styles.tableHeader}>
-                  <th>시간</th><th>시가</th><th>고가</th><th>저가</th><th>종가</th><th>거래량</th>
-                </tr>
-              </thead>
-              <tbody>
-                {ohlcvList?.length === 0 && (
-                  <tr><td colSpan={6} style={styles.noDataCell}>데이터 없음</td></tr>
-                )}
-                {ohlcvList?.map((row: OhlcvDto, idx: number) => {
-                  const closeVal = Number(row.close)
-                  const openVal = Number(row.open)
-                  const isUp = !isNaN(closeVal) && !isNaN(openVal) && closeVal >= openVal
-                  return (
-                    <tr key={idx} style={{ background: idx % 2 === 0 ? '#fff' : '#f9f9f9' }}>
-                      <td style={styles.td}>{row.openTime ? new Date(row.openTime).toLocaleString() : '—'}</td>
-                      <td style={styles.td}>{fmtPrice(row.open)}</td>
-                      <td style={{ ...styles.td, color: '#d93025' }}>{fmtPrice(row.high)}</td>
-                      <td style={{ ...styles.td, color: '#1a73e8' }}>{fmtPrice(row.low)}</td>
-                      <td style={{ ...styles.td, color: isUp ? '#34a853' : '#d93025', fontWeight: 600 }}>
-                        {row.close != null ? (isUp ? '▲' : '▼') : ''} {fmtPrice(row.close)}
-                      </td>
-                      <td style={styles.td}>{fmt(row.volume)}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    </div>
+          </ToggleButtonGroup>
+        </Box>
+        <Box ref={chartContainerRef} sx={{ width: '100%', height: 400 }} />
+      </Paper>
+    </Box>
   )
 }
 
-const TickerItem = ({ label, value, color = '#222', noFormat = false }: {
-  label: string; value: number | null | undefined; color?: string; noFormat?: boolean
-}) => (
-  <div style={{ textAlign: 'right', marginBottom: 4 }}>
-    <span style={{ fontSize: 12, color: '#888', marginRight: 8 }}>{label}</span>
-    <span style={{ fontSize: 14, fontWeight: 600, color }}>
-      {noFormat ? fmt(value) : fmtPrice(value)}
-    </span>
-  </div>
+const MiniStat = ({ label, value, color = '#d1d4dc' }: { label: string; value: string; color?: string }) => (
+  <Box sx={{ textAlign: 'right' }}>
+    <Typography variant="caption" sx={{ color: '#787b86', display: 'block', lineHeight: 1 }}>{label}</Typography>
+    <Typography variant="body2" sx={{ fontWeight: 600, color }}>{value}</Typography>
+  </Box>
 )
-
-const styles: Record<string, React.CSSProperties> = {
-  toolbar: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  symbolGroup: { display: 'flex', gap: 8 },
-  symbolBtn: { padding: '6px 14px', border: '1px solid #ddd', borderRadius: 6, background: '#fff', cursor: 'pointer', fontWeight: 600, fontSize: 13 },
-  symbolBtnActive: { background: '#1a73e8', color: '#fff', border: '1px solid #1a73e8' },
-  wsBadge: { fontSize: 12, color: '#fff', padding: '4px 10px', borderRadius: 10, fontWeight: 600 },
-  tickerCard: {
-    background: '#fff', border: '1px solid #e8eaed', borderRadius: 12,
-    padding: 24, marginBottom: 24, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-  },
-  tickerLeft: {},
-  tickerSymbol: { fontSize: 18, fontWeight: 700, color: '#555', marginBottom: 4 },
-  tickerPrice: { fontSize: 36, fontWeight: 800, marginBottom: 4 },
-  tickerChange: { fontSize: 16, fontWeight: 600 },
-  tickerRight: { textAlign: 'right' },
-  noData: { color: '#888', padding: 40, textAlign: 'center' },
-  section: { background: '#fff', border: '1px solid #e8eaed', borderRadius: 10, padding: 20, boxShadow: '0 1px 4px rgba(0,0,0,0.06)' },
-  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  sectionTitle: { fontSize: 16, fontWeight: 700 },
-  intervalGroup: { display: 'flex', gap: 4 },
-  intervalBtn: { padding: '4px 10px', border: '1px solid #ddd', borderRadius: 4, background: '#f5f5f5', cursor: 'pointer', fontSize: 12 },
-  intervalBtnActive: { background: '#1a73e8', color: '#fff', border: '1px solid #1a73e8' },
-  tableWrap: { overflowX: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 13 },
-  tableHeader: { background: '#f5f5f5' },
-  td: { padding: '8px 12px', borderBottom: '1px solid #f0f0f0', textAlign: 'right' },
-  noDataCell: { padding: 24, textAlign: 'center', color: '#888' },
-}
 
 export default MarketPage

@@ -4,6 +4,7 @@ import com.exchange.account.common.response.ApiResponse;
 import com.exchange.account.domain.account.dto.AccountResponse;
 import com.exchange.account.domain.account.dto.BalanceRequest;
 import com.exchange.account.domain.account.dto.CreateAccountRequest;
+import com.exchange.account.domain.account.dto.FreezeRequest;
 import com.exchange.account.domain.account.service.AccountService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -62,5 +63,19 @@ public class AccountController {
             @PathVariable Long id,
             @Valid @RequestBody BalanceRequest request) {
         return ResponseEntity.ok(ApiResponse.success("출금 완료", accountService.withdraw(id, request)));
+    }
+
+    @Operation(summary = "증거금 동결 (내부 서비스 호출용)")
+    @PostMapping("/freeze")
+    public ResponseEntity<ApiResponse<String>> freeze(@Valid @RequestBody FreezeRequest request) {
+        accountService.freezeForOrder(request.getUsername(), request.getAmount());
+        return ResponseEntity.ok(ApiResponse.success("증거금 동결 완료", "OK"));
+    }
+
+    @Operation(summary = "증거금 해제 (내부 서비스 호출용)")
+    @PostMapping("/unfreeze")
+    public ResponseEntity<ApiResponse<String>> unfreeze(@Valid @RequestBody FreezeRequest request) {
+        accountService.unfreezeForOrder(request.getUsername(), request.getAmount());
+        return ResponseEntity.ok(ApiResponse.success("증거금 해제 완료", "OK"));
     }
 }

@@ -46,6 +46,10 @@ public class Order {
     @Column(nullable = false, length = 20)
     private OrderStatus status;
 
+    /** STOP 주문 트리거 가격 (STOP_LOSS/STOP_LIMIT 전용) */
+    @Column(precision = 12, scale = 2)
+    private BigDecimal stopPrice;
+
     @CreationTimestamp
     @Column(updatable = false)
     private LocalDateTime createdAt;
