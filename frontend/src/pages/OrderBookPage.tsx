@@ -6,6 +6,18 @@ import LoadingSpinner from '@/components/common/LoadingSpinner'
 const SYMBOLS = ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'GOOGL']
 const DEPTHS = [5, 10, 20]
 
+const fmtPrice = (v: number | null | undefined) => {
+  if (v == null) return '—'
+  const n = Number(v)
+  return isNaN(n) ? '—' : `₩${n.toLocaleString('ko-KR')}`
+}
+
+const fmt = (v: number | null | undefined) => {
+  if (v == null) return '—'
+  const n = Number(v)
+  return isNaN(n) ? '—' : n.toLocaleString('ko-KR')
+}
+
 const OrderBookPage = () => {
   const [symbol, setSymbol] = useState('AAPL')
   const [depth, setDepth] = useState(10)
@@ -68,10 +80,10 @@ const OrderBookPage = () => {
                 {[...snapshot.asks].reverse().map((level: PriceLevel, idx: number) => (
                   <tr key={idx} style={{ background: idx % 2 === 0 ? '#f0f6ff' : '#fff' }}>
                     <td style={{ ...styles.td, color: '#1a73e8', fontWeight: 700 }}>
-                      ₩{Number(level.price).toLocaleString()}
-                    </td>
-                    <td style={styles.td}>{Number(level.quantity).toLocaleString()}</td>
-                    <td style={styles.td}>{level.orderCount}</td>
+                        {fmtPrice(level.price)}
+                      </td>
+                      <td style={styles.td}>{fmt(level.quantity)}</td>
+                      <td style={styles.td}>{level.orderCount ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -83,7 +95,11 @@ const OrderBookPage = () => {
             <div style={styles.spread}>
               <span style={styles.spreadLabel}>스프레드</span>
               <span style={styles.spreadValue}>
-                ₩{(Number(snapshot.asks[0].price) - Number(snapshot.bids[0].price)).toLocaleString()}
+                {fmtPrice(
+                  (snapshot.asks[0].price != null && snapshot.bids[0].price != null)
+                    ? Number(snapshot.asks[0].price) - Number(snapshot.bids[0].price)
+                    : null
+                )}
               </span>
             </div>
           )}
@@ -103,10 +119,10 @@ const OrderBookPage = () => {
                 {snapshot.bids.map((level: PriceLevel, idx: number) => (
                   <tr key={idx} style={{ background: idx % 2 === 0 ? '#f0fff4' : '#fff' }}>
                     <td style={{ ...styles.td, color: '#34a853', fontWeight: 700 }}>
-                      ₩{Number(level.price).toLocaleString()}
-                    </td>
-                    <td style={styles.td}>{Number(level.quantity).toLocaleString()}</td>
-                    <td style={styles.td}>{level.orderCount}</td>
+                        {fmtPrice(level.price)}
+                      </td>
+                      <td style={styles.td}>{fmt(level.quantity)}</td>
+                      <td style={styles.td}>{level.orderCount ?? '—'}</td>
                   </tr>
                 ))}
               </tbody>

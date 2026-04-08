@@ -5,6 +5,26 @@ import LoadingSpinner from '@/components/common/LoadingSpinner'
 
 const SYMBOLS = ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'GOOGL']
 
+/** null | undefined | NaN 을 '—'으로, 그 외 숫자는 toLocaleString() 포맷 */
+const fmt = (v: number | null | undefined, opts?: Intl.NumberFormatOptions): string => {
+  if (v == null) return '—'
+  const n = Number(v)
+  if (isNaN(n)) return '—'
+  return n.toLocaleString('ko-KR', opts)
+}
+
+const fmtPrice = (v: number | null | undefined) => {
+  const s = fmt(v)
+  return s === '—' ? '—' : `₩${s}`
+}
+
+const fmtFixed = (v: number | null | undefined, digits = 2): string => {
+  if (v == null) return '—'
+  const n = Number(v)
+  if (isNaN(n)) return '—'
+  return n.toFixed(digits)
+}
+
 const MarketPage = () => {
   const [symbol, setSymbol] = useState('AAPL')
   const [interval, setInterval] = useState('1m')
@@ -52,7 +72,10 @@ const MarketPage = () => {
           const body = frame.slice(bodyStart).replace('\0', '')
           try {
             const data = JSON.parse(body) as TickerDto
-            setLiveTicker(data)
+            // price가 없는 빈 ticker(Redis 데이터 없을 때 서버가 symbol만 반환)는 무시
+            if (data.price != null && !isNaN(Number(data.price))) {
+              setLiveTicker(data)
+            }
           } catch {
             // ignore parse errors
           }
@@ -100,15 +123,15 @@ const MarketPage = () => {
           <div style={styles.tickerLeft}>
             <div style={styles.tickerSymbol}>{displayTicker.symbol}</div>
             <div style={styles.tickerPrice}>
-              ₩{Number(displayTicker.price).toLocaleString()}
+              {fmtPrice(displayTicker.price)}
             </div>
             <div style={{
               ...styles.tickerChange,
-              color: displayTicker.changeRate >= 0 ? '#34a853' : '#d93025',
+              color: (displayTicker.changeRate ?? 0) >= 0 ? '#34a853' : '#d93025',
             }}>
-              {displayTicker.changeRate >= 0 ? '▲' : '▼'}{' '}
-              {Math.abs(Number(displayTicker.change)).toLocaleString()}{' '}
-              ({Math.abs(Number(displayTicker.changeRate)).toFixed(2)}%)
+              {(displayTicker.changeRate ?? 0) >= 0 ? '▲' : '▼'}{' '}
+              {fmtPrice(displayTicker.change != null ? Math.abs(Number(displayTicker.change)) : null)}{' '}
+              ({fmtFixed(displayTicker.changeRate != null ? Math.abs(Number(displayTicker.changeRate)) : null)}%)
             </div>
           </div>
           <div style={styles.tickerRight}>
@@ -155,17 +178,19 @@ const MarketPage = () => {
                   <tr><td colSpan={6} style={styles.noDataCell}>데이터 없음</td></tr>
                 )}
                 {ohlcvList?.map((row: OhlcvDto, idx: number) => {
-                  const isUp = row.close >= row.open
+                  const closeVal = Number(row.close)
+                  const openVal = Number(row.open)
+                  const isUp = !isNaN(closeVal) && !isNaN(openVal) && closeVal >= openVal
                   return (
                     <tr key={idx} style={{ background: idx % 2 === 0 ? '#fff' : '#f9f9f9' }}>
-                      <td style={styles.td}>{new Date(row.openTime).toLocaleString()}</td>
-                      <td style={styles.td}>{Number(row.open).toLocaleString()}</td>
-                      <td style={{ ...styles.td, color: '#d93025' }}>{Number(row.high).toLocaleString()}</td>
-                      <td style={{ ...styles.td, color: '#1a73e8' }}>{Number(row.low).toLocaleString()}</td>
+                      <td style={styles.td}>{row.openTime ? new Date(row.openTime).toLocaleString() : '—'}</td>
+                      <td style={styles.td}>{fmtPrice(row.open)}</td>
+                      <td style={{ ...styles.td, color: '#d93025' }}>{fmtPrice(row.high)}</td>
+                      <td style={{ ...styles.td, color: '#1a73e8' }}>{fmtPrice(row.low)}</td>
                       <td style={{ ...styles.td, color: isUp ? '#34a853' : '#d93025', fontWeight: 600 }}>
-                        {isUp ? '▲' : '▼'} {Number(row.close).toLocaleString()}
+                        {row.close != null ? (isUp ? '▲' : '▼') : ''} {fmtPrice(row.close)}
                       </td>
-                      <td style={styles.td}>{Number(row.volume).toLocaleString()}</td>
+                      <td style={styles.td}>{fmt(row.volume)}</td>
                     </tr>
                   )
                 })}
@@ -179,12 +204,12 @@ const MarketPage = () => {
 }
 
 const TickerItem = ({ label, value, color = '#222', noFormat = false }: {
-  label: string; value: number; color?: string; noFormat?: boolean
+  label: string; value: number | null | undefined; color?: string; noFormat?: boolean
 }) => (
   <div style={{ textAlign: 'right', marginBottom: 4 }}>
     <span style={{ fontSize: 12, color: '#888', marginRight: 8 }}>{label}</span>
     <span style={{ fontSize: 14, fontWeight: 600, color }}>
-      {noFormat ? Number(value).toLocaleString() : `₩${Number(value).toLocaleString()}`}
+      {noFormat ? fmt(value) : fmtPrice(value)}
     </span>
   </div>
 )
