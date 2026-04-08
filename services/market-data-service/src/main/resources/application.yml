@@ -2,6 +2,19 @@ spring:
   application:
     name: market-data-service
 
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+  kafka:
+    bootstrap-servers: ${SPRING_KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      group-id: market-data-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+
 server:
   port: 8083
 
@@ -20,6 +33,19 @@ springdoc:
   api-docs:
     path: /api-docs
 
+# Redis 키 설정
+market:
+  redis:
+    ticker-prefix: "ticker:"           # ticker:{symbol} → 현재 시세 Hash
+    ohlcv-prefix: "ohlcv:"             # ohlcv:{symbol}:{interval} → ZSet
+    ticker-ttl-seconds: 300            # 5분 TTL
+  websocket:
+    topic-prefix: "/topic/ticker/"     # 클라이언트 구독 경로
+  kafka:
+    order-topic: order-events
+    order-status-topic: order-status-events
+
 logging:
   level:
-    com.exchange: DEBUG
+    com.exchange.marketdata: DEBUG
+    org.springframework.kafka: WARN
