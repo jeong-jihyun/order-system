@@ -1,0 +1,23 @@
+# 여기에 직접 작성해보세요
+# 실제 docker-compose.yml을 보지 않고, order-service 하나만 먼저 작성
+# 기억나는 것만 써보는 것이 목표
+
+services:
+  order-service:
+    build:
+      context: ./services/order-service
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:mysql://exchange-mysql:3306/orderdb?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: orderuser
+      SPRING_DATASOURCE_PASSWORD: orderpassword
+      SPRING_DATA_REDIS_HOST: exchange-redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: exchange-kafka:9092
+      JWT_SECRET: order-system-jwt-secret-key-must-be-at-least-256-bits-long
+    depends_on:
+      - exchange-mysql
+      - exchange-redis
+      - exchange-kafka

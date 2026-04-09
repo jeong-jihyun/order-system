@@ -132,7 +132,7 @@
 
 ---
 
-### 🔲 Day 6 (04/11)
+### ✅ Day 6 (04/09 완료)
 
 **주제: Week 1 복습 + 직접 설명하기**
 
@@ -140,6 +140,16 @@
 |------|------|
 | 1교시 (1h) | Generic + Stream 복습 — 코드 없이 직접 설명해보기 |
 | 2교시 (1h) | docker-compose 전체 구조를 직접 재현해보기 (빈 파일에서 시작) |
+
+**학습 노트:**
+- Generic: 타입 안전성 + 컴파일 시점 오류 검사 (유연성 ≠ 목적, 안전성이 목적)
+- Stream: 선언형(What) vs for문 명령형(How), 지연 평가(Lazy)
+- map vs flatMap: 1:1 변환 vs 중첩 제거(List→펼침)
+- groupingBy: `Map<K, List<V>>` 반환 = SQL GROUP BY
+- reduce identity: `0 + 값 = 값` 항등값, 빈 Stream 시 기본값 역할
+- docker-compose: 공통 Dockerfile + args로 서비스 구분, `condition: service_healthy` 필수
+
+**연습 파일:** [docs/practice_docker_compose.yml](docs/practice_docker_compose.yml)
 
 ---
 
@@ -200,8 +210,8 @@
 
 | 주차 | 완료 | 전체 | 진행률 |
 |------|------|------|--------|
-| Week 1 | 5 | 7 | 71% |
+| Week 1 | 6 | 7 | 86% |
 | Week 2 | 0 | 7 | 0% |
 | Week 3 | 0 | 7 | 0% |
 | Week 4 | 0 | 7 | 0% |
-| **전체** | **5** | **28** | **18%** |
+| **전체** | **6** | **28** | **21%** |
