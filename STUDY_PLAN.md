@@ -173,6 +173,8 @@
 
 **학습 노트:** [docs/day7_jpa_tutorial.md](docs/day7_jpa_tutorial.md)
 
+**WebSocket 가이드:** [docs/day7_websocket_guide.md](docs/day7_websocket_guide.md)
+
 ---
 
 ## Week 2 — 백엔드 심화 (Redis / Kafka)
