@@ -151,6 +151,8 @@
 
 **연습 파일:** [docs/practice_docker_compose.yml](docs/practice_docker_compose.yml)
 
+**학습 노트:** [docs/day6_review.md](docs/day6_review.md)
+
 ---
 
 ### 🔲 Day 7 (04/12)
