@@ -155,14 +155,23 @@
 
 ---
 
-### 🔲 Day 7 (04/12)
+### ✅ Day 7 (04/09 완료)
 
-**주제: Week 1 최종 점검**
+**주제: Week 1 최종 점검 + JPA 실전 튜토리얼**
 
 | 시간 | 내용 |
 |------|------|
-| 1교시 (1h) | Week 1 전체 퀴즈 (10문항 직접 답하기) |
-| 2교시 (1h) | 틀린 부분 보완 + Week 2 예습 (Redis 개념) |
+| 1교시 (1h) | Week 1 전체 퀴즈 10문항 직접 답하기 |
+| 2교시 (1h) | 프로젝트 JPA 코드 기반 실전 튜토리얼 |
+
+**학습 노트:**
+- @Entity vs @Table, IDENTITY 전략, PROTECTED 이유
+- EnumType.STRING 필수 이유 (ORDINAL 데이터 오염 위험)
+- LAZY vs EAGER (N+1 문제), PESSIMISTIC_WRITE 동시성 제어
+- Derived Query 메서드명 규칙, @Transactional 범위
+- Hexagonal Architecture — Repository Adapter 패턴 (DIP)
+
+**학습 노트:** [docs/day7_jpa_tutorial.md](docs/day7_jpa_tutorial.md)
 
 ---
 
@@ -212,8 +221,8 @@
 
 | 주차 | 완료 | 전체 | 진행률 |
 |------|------|------|--------|
-| Week 1 | 6 | 7 | 86% |
+| Week 1 | 7 | 7 | 100% ✅ |
 | Week 2 | 0 | 7 | 0% |
 | Week 3 | 0 | 7 | 0% |
 | Week 4 | 0 | 7 | 0% |
-| **전체** | **6** | **28** | **21%** |
+| **전체** | **7** | **28** | **25%** |
