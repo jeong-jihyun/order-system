@@ -121,9 +121,9 @@ public class OrderCommandService {
         Order updated = orderCommandPort.save(order);
 
         // 취소 시 BUY 주문의 증거금 해제
-        if (newStatus == OrderStatus.CANCELLED && "BUY".equalsIgnoreCase(order.getSide())) {
+        if (newStatus == OrderStatus.CANCELLED && OrderSide.BUY == order.getSide()) {
             BigDecimal orderAmount = order.getTotalPrice()
-                    .multiply(BigDecimal.valueOf(order.getQuantity()));
+                    .multiply(order.getQuantity());
             accountServiceClient.unfreezeBalance(order.getCustomerName(), orderAmount);
         }
 
