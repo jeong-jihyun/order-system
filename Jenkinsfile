@@ -1,21 +1,23 @@
 // ============================================================
-// Order Exchange System â€” Jenkinsfile
-// ë©€í‹°ëª¨ë“ˆ ë§ˆì´í¬ë¡œì„œë¹„ìŠ¤ CI/CD íŒŒì´í”„ë¼ì¸
+// Order Exchange System ? Jenkinsfile (ÃÖÀûÈ­)
 //
-// Pipeline:
-//   Checkout â†’ ì „ì²´ ë¹Œë“œ/í…ŒìŠ¤íŠ¸ â†’ Docker ì´ë¯¸ì§€ ë³‘ë ¬ ë¹Œë“œ
-//           â†’ ì¸í”„ë¼ ê¸°ë™ â†’ 6ê°œ ì„œë¹„ìŠ¤ ë³‘ë ¬ ë°°í¬ â†’ í—¬ìŠ¤ì²´í¬
+// ÃÖÀûÈ­ Ç×¸ñ:
+//   1. Build&Test: ¼­ºñ½ºº° Gradle 6È¸ ¡æ 1È¸ ÅëÇÕ ½ÇÇà (--parallel)
+//   2. JAR Build:  bootJarµµ 1È¸ ÅëÇÕ ½ÇÇà
+//   3. Docker:     BuildKit(DOCKER_BUILDKIT=1) È°¼ºÈ­ ? ·¹ÀÌ¾î Ä³½Ã È°¿ë
+//   4. MySQL ´ë±â: -p exchange ÇÃ·¡±× Ãß°¡ (¿Ã¹Ù¸¥ ÄÁÅ×ÀÌ³Ê ÁöÁ¤)
+//   5. Health Check: services.each ¼øÂ÷ ¡æ parallel º´·Ä È®ÀÎ
 // ============================================================
 pipeline {
     agent any
 
     environment {
-        REGISTRY      = "${env.DOCKER_REGISTRY ?: 'localhost:5000'}"
-        PROJECT       = "exchange"
-        COMPOSE_FILE  = "docker-compose.yml"
-        COMPOSE_P     = "exchange"
-        // ë°°í¬ ëŒ€ìƒ ì„œë¹„ìŠ¤ ëª©ë¡
-        SERVICES      = "api-gateway order-service account-service market-data-service trading-engine settlement-service"
+        REGISTRY        = "${env.DOCKER_REGISTRY ?: 'localhost:5000'}"
+        PROJECT         = "exchange"
+        COMPOSE_FILE    = "docker-compose.yml"
+        COMPOSE_P       = "exchange"
+        SERVICES        = "api-gateway order-service account-service market-data-service trading-engine settlement-service"
+        DOCKER_BUILDKIT = "1"
     }
 
     options {
@@ -26,7 +28,6 @@ pipeline {
 
     stages {
 
-        // â‘  ì†ŒìŠ¤ì½”ë“œ ì²´í¬ì•„ì›ƒ
         stage('Checkout') {
             steps {
                 checkout scm
@@ -37,93 +38,68 @@ pipeline {
                     ).trim()
                     env.IMAGE_TAG = "${env.BRANCH_NAME}-${env.GIT_COMMIT_SHORT}"
                 }
-                echo "ì²´í¬ì•„ì›ƒ ì™„ë£Œ â€” branch=${env.BRANCH_NAME}, commit=${env.GIT_COMMIT_SHORT}"
+                echo "Ã¼Å©¾Æ¿ô ¿Ï·á ? branch=${env.BRANCH_NAME}, commit=${env.GIT_COMMIT_SHORT}"
             }
         }
 
-        // â‘¡ gradlew ì‹¤í–‰ ê¶Œí•œ ë³´ì¥ (git checkout í›„ Linux í™˜ê²½ ëŒ€ë¹„)
         stage('Prepare') {
             steps {
                 sh 'chmod +x gradlew'
             }
         }
 
-        // â‘¢ ì „ì²´ ë©€í‹°ëª¨ë“ˆ ì»´íŒŒì¼ + í…ŒìŠ¤íŠ¸ (ë³‘ë ¬)
+        // ¨é ÅëÇÕ Å×½ºÆ® ? JVM 1È¸ ±âµ¿, °øÅë ¸ğµâ Áßº¹ ÄÄÆÄÀÏ Á¦°Å
         stage('Build & Test') {
-            parallel {
-
-                stage('order-service') {
-                    steps {
-                        sh './gradlew :services:order-service:test --no-daemon -x :backend:test'
-                    }
-                    post {
-                        always {
-                            junit allowEmptyResults: true,
-                                  testResults: 'services/order-service/build/test-results/**/*.xml'
-                        }
-                    }
-                }
-
-                stage('account-service') {
-                    steps {
-                        sh './gradlew :services:account-service:test --no-daemon -x :backend:test'
-                    }
-                    post {
-                        always {
-                            junit allowEmptyResults: true,
-                                  testResults: 'services/account-service/build/test-results/**/*.xml'
-                        }
-                    }
-                }
-
-                stage('market-data-service') {
-                    steps {
-                        sh './gradlew :services:market-data-service:test --no-daemon -x :backend:test'
-                    }
-                    post {
-                        always {
-                            junit allowEmptyResults: true,
-                                  testResults: 'services/market-data-service/build/test-results/**/*.xml'
-                        }
-                    }
-                }
-
-                stage('trading-engine') {
-                    steps {
-                        sh './gradlew :services:trading-engine:test --no-daemon -x :backend:test'
-                    }
-                    post {
-                        always {
-                            junit allowEmptyResults: true,
-                                  testResults: 'services/trading-engine/build/test-results/**/*.xml'
-                        }
-                    }
-                }
-
-                stage('settlement-service') {
-                    steps {
-                        sh './gradlew :services:settlement-service:test --no-daemon -x :backend:test'
-                    }
-                    post {
-                        always {
-                            junit allowEmptyResults: true,
-                                  testResults: 'services/settlement-service/build/test-results/**/*.xml'
-                        }
-                    }
+            steps {
+                sh '''
+                    ./gradlew \
+                        :services:order-service:test \
+                        :services:account-service:test \
+                        :services:market-data-service:test \
+                        :services:trading-engine:test \
+                        :services:settlement-service:test \
+                        -x :backend:test \
+                        --no-daemon \
+                        --continue \
+                        --parallel
+                '''
+            }
+            post {
+                always {
+                    junit allowEmptyResults: true,
+                          testResults: 'services/*/build/test-results/**/*.xml'
                 }
             }
         }
 
-        // â‘£ Docker ì´ë¯¸ì§€ ë³‘ë ¬ ë¹Œë“œ
+        // ¨ê ÅëÇÕ bootJar ºôµå ? 1È¸ Gradle ½ÇÇà
+        stage('JAR Build') {
+            steps {
+                sh '''
+                    ./gradlew \
+                        :services:api-gateway:bootJar \
+                        :services:order-service:bootJar \
+                        :services:account-service:bootJar \
+                        :services:market-data-service:bootJar \
+                        :services:trading-engine:bootJar \
+                        :services:settlement-service:bootJar \
+                        -x test \
+                        --no-daemon \
+                        --parallel
+                '''
+            }
+        }
+
+        // ¨ë Docker ÀÌ¹ÌÁö º´·Ä ºôµå (BuildKit + cache-from)
         stage('Docker Build') {
             parallel {
-
                 stage('build: api-gateway') {
                     steps {
                         sh """
                             docker build \
                               --build-arg SERVICE_DIR=api-gateway \
                               --build-arg JAR_NAME=api-gateway \
+                              --cache-from ${REGISTRY}/${PROJECT}/api-gateway:latest \
                               -f docker/Dockerfile \
                               -t ${REGISTRY}/${PROJECT}/api-gateway:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/api-gateway:latest \
@@ -131,13 +107,13 @@ pipeline {
                         """
                     }
                 }
-
                 stage('build: order-service') {
                     steps {
                         sh """
                             docker build \
                               --build-arg SERVICE_DIR=order-service \
                               --build-arg JAR_NAME=order-service \
+                              --cache-from ${REGISTRY}/${PROJECT}/order-service:latest \
                               -f docker/Dockerfile \
                               -t ${REGISTRY}/${PROJECT}/order-service:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/order-service:latest \
@@ -145,13 +121,13 @@ pipeline {
                         """
                     }
                 }
-
                 stage('build: account-service') {
                     steps {
                         sh """
                             docker build \
                               --build-arg SERVICE_DIR=account-service \
                               --build-arg JAR_NAME=account-service \
+                              --cache-from ${REGISTRY}/${PROJECT}/account-service:latest \
                               -f docker/Dockerfile \
                               -t ${REGISTRY}/${PROJECT}/account-service:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/account-service:latest \
@@ -159,13 +135,13 @@ pipeline {
                         """
                     }
                 }
-
                 stage('build: market-data-service') {
                     steps {
                         sh """
                             docker build \
                               --build-arg SERVICE_DIR=market-data-service \
                               --build-arg JAR_NAME=market-data-service \
+                              --cache-from ${REGISTRY}/${PROJECT}/market-data-service:latest \
                               -f docker/Dockerfile \
                               -t ${REGISTRY}/${PROJECT}/market-data-service:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/market-data-service:latest \
@@ -173,13 +149,13 @@ pipeline {
                         """
                     }
                 }
-
                 stage('build: trading-engine') {
                     steps {
                         sh """
                             docker build \
                               --build-arg SERVICE_DIR=trading-engine \
                               --build-arg JAR_NAME=trading-engine \
+                              --cache-from ${REGISTRY}/${PROJECT}/trading-engine:latest \
                               -f docker/Dockerfile \
                               -t ${REGISTRY}/${PROJECT}/trading-engine:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/trading-engine:latest \
@@ -187,13 +163,13 @@ pipeline {
                         """
                     }
                 }
-
                 stage('build: settlement-service') {
                     steps {
                         sh """
                             docker build \
                               --build-arg SERVICE_DIR=settlement-service \
                               --build-arg JAR_NAME=settlement-service \
+                              --cache-from ${REGISTRY}/${PROJECT}/settlement-service:latest \
                               -f docker/Dockerfile \
                               -t ${REGISTRY}/${PROJECT}/settlement-service:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/settlement-service:latest \
@@ -204,10 +180,9 @@ pipeline {
             }
         }
 
-        // â‘¤ ì¸í”„ë¼ ê¸°ë™ (mysql, redis, kafka ë“±)
+        // ¨ì ÄÁÅ×ÀÌ³Ê ÀüÃ¼ Á¦°Å + ÀÎÇÁ¶ó ±âµ¿
         stage('Infrastructure Up') {
             steps {
-                // ì¸í”„ë¼ + ì„œë¹„ìŠ¤ ì»¨í…Œì´ë„ˆ ì „ì²´ ê°•ì œ ì œê±° (Name Conflict ì™„ì „ ë°©ì§€)
                 sh """
                     docker rm -f \
                         exchange-zookeeper exchange-kafka exchange-redis \
@@ -221,73 +196,65 @@ pipeline {
                     docker compose -p ${COMPOSE_P} up -d \
                         mysql redis zookeeper kafka kafdrop
                 """
-                // ì¸í”„ë¼ Ready ëŒ€ê¸° (ìµœëŒ€ 60ì´ˆ)
-                sh '''
-                    for i in $(seq 1 12); do
-                        docker compose exec -T mysql mysqladmin ping -uroot -ppassword --silent 2>/dev/null \
+                sh """
+                    for i in \$(seq 1 12); do
+                        docker compose -p ${COMPOSE_P} exec -T mysql \
+                            mysqladmin ping -uroot -ppassword --silent 2>/dev/null \
                             && echo "MySQL Ready" && break
-                        echo "MySQL ëŒ€ê¸° ì¤‘... ($i/12)"
+                        echo "MySQL ´ë±â Áß... (\$i/12)"
                         sleep 5
                     done
-                '''
+                """
             }
         }
 
-        // â‘¥ ë§ˆì´í¬ë¡œì„œë¹„ìŠ¤ ë³‘ë ¬ ë°°í¬ (--no-deps: íƒ€ ì„œë¹„ìŠ¤ ì¬ì‹œì‘ ë°©ì§€)
+        // ¨í ¸¶ÀÌÅ©·Î¼­ºñ½º º´·Ä ¹èÆ÷
         stage('Deploy Services') {
             parallel {
                 stage('deploy: api-gateway') {
-                    steps {
-                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps api-gateway"
-                    }
+                    steps { sh "docker compose -p ${COMPOSE_P} up -d --no-deps api-gateway" }
                 }
                 stage('deploy: order-service') {
-                    steps {
-                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps order-service"
-                    }
+                    steps { sh "docker compose -p ${COMPOSE_P} up -d --no-deps order-service" }
                 }
                 stage('deploy: account-service') {
-                    steps {
-                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps account-service"
-                    }
+                    steps { sh "docker compose -p ${COMPOSE_P} up -d --no-deps account-service" }
                 }
                 stage('deploy: market-data-service') {
-                    steps {
-                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps market-data-service"
-                    }
+                    steps { sh "docker compose -p ${COMPOSE_P} up -d --no-deps market-data-service" }
                 }
                 stage('deploy: trading-engine') {
-                    steps {
-                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps trading-engine"
-                    }
+                    steps { sh "docker compose -p ${COMPOSE_P} up -d --no-deps trading-engine" }
                 }
                 stage('deploy: settlement-service') {
-                    steps {
-                        sh "docker compose -p ${COMPOSE_P} up -d --no-deps settlement-service"
-                    }
+                    steps { sh "docker compose -p ${COMPOSE_P} up -d --no-deps settlement-service" }
                 }
             }
         }
 
-        // â‘¦ í—¬ìŠ¤ì²´í¬ (6ê°œ ì„œë¹„ìŠ¤ ëª¨ë‘ í™•ì¸)
+        // ¨î Çï½ºÃ¼Å© ? 6°³ ¼­ºñ½º º´·Ä È®ÀÎ (¼øÂ÷ 60ÃÊ ¡æ º´·Ä ¾à 10~30ÃÊ)
         stage('Health Check') {
             steps {
                 script {
+                    def checks = [:]
                     def services = [
-                        [name: 'api-gateway',        port: 8080],
-                        [name: 'order-service',       port: 8081],
-                        [name: 'account-service',     port: 8082],
-                        [name: 'market-data-service', port: 8083],
-                        [name: 'trading-engine',      port: 8084],
-                        [name: 'settlement-service',  port: 8085]
+                        'api-gateway':         8080,
+                        'order-service':       8081,
+                        'account-service':     8082,
+                        'market-data-service': 8083,
+                        'trading-engine':      8084,
+                        'settlement-service':  8085
                     ]
-                    services.each { svc ->
-                        retry(6) {
-                            sleep(time: 10, unit: 'SECONDS')
-                            sh "curl -sf http://localhost:${svc.port}/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
+                    services.each { name, port ->
+                        checks[name] = {
+                            retry(6) {
+                                sleep(time: 10, unit: 'SECONDS')
+                                sh "curl -sf http://localhost:${port}/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
+                            }
+                            echo "${name} Çï½ºÃ¼Å© Åë°ú"
                         }
-                        echo "${svc.name} í—¬ìŠ¤ì²´í¬ í†µê³¼"
                     }
+                    parallel checks
                 }
             }
         }
@@ -295,14 +262,13 @@ pipeline {
 
     post {
         success {
-            echo "íŒŒì´í”„ë¼ì¸ ì„±ê³µ â€” branch=${env.BRANCH_NAME}, tag=${env.IMAGE_TAG}"
+            echo "ÆÄÀÌÇÁ¶óÀÎ ¼º°ø ? branch=${env.BRANCH_NAME}, tag=${env.IMAGE_TAG}"
         }
         failure {
-            echo "íŒŒì´í”„ë¼ì¸ ì‹¤íŒ¨ â€” ë¡œê·¸ë¥¼ í™•ì¸í•˜ì„¸ìš”."
+            echo "ÆÄÀÌÇÁ¶óÀÎ ½ÇÆĞ ? ·Î±×¸¦ È®ÀÎÇÏ¼¼¿ä."
             sh(script: "docker compose -p exchange logs --tail=50", returnStatus: true)
         }
         always {
-            // ë¹Œë“œ ìºì‹œ ìµœì í™” (dangling ì´ë¯¸ì§€ ì •ë¦¬)
             sh 'docker image prune -f || true'
         }
     }
