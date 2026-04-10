@@ -193,7 +193,14 @@
 - Cache-Aside 패턴: 프로젝트에서 사용하는 전략
 
 **학습 노트:** [docs/day8_redis_cache.md](docs/day8_redis_cache.md)
-### 🔲 Day 9 (04/14) — Redis TTL 설정 + Cache-Aside 패턴 실습
+### ✅ Day 9 (04/10 완료) — Redis TTL 설정 + Cache-Aside 패턴 실습
+
+**학습 내용:**
+- 캐시별 TTL 다르게 설정: `withCacheConfiguration("캐시명", config.entryTtl(...))`
+- Cache-Aside 4단계: 요청 → 캐시 확인(Hit/Miss) → DB 조회 → 캐시 저장
+- 수동 구현: `objectMapper.readValue()`(역직렬화) + `writeValueAsString()`(직렬화)
+- 체크 예외: `JsonProcessingException` → `try-catch` 필수
+- TTL 생략 시 영구 저장 → 오래된 데이터 무한 반환 위험
 ### 🔲 Day 10 (04/15) — Kafka Producer 직접 작성 + 파티션/직렬화 이해
 ### 🔲 Day 11 (04/16) — Kafka Consumer 직접 작성 + DLQ 개념
 ### 🔲 Day 12 (04/17) — Stream 심화 + Generic 유틸 조합 실습
@@ -235,7 +242,7 @@
 | 주차 | 완료 | 전체 | 진행률 |
 |------|------|------|--------|
 | Week 1 | 7 | 7 | 100% ✅ |
-| Week 2 | 1 | 7 | 14% |
+| Week 2 | 2 | 7 | 29% |
 | Week 3 | 0 | 7 | 0% |
 | Week 4 | 0 | 7 | 0% |
-| **전체** | **8** | **28** | **29%** |
+| **전체** | **9** | **28** | **32%** |
