@@ -208,7 +208,7 @@ pipeline {
         stage('Infrastructure Up') {
             steps {
                 sh """
-                    docker compose -p ${COMPOSE_P} up -d \
+                    docker compose -p ${COMPOSE_P} up -d --force-recreate \
                         mysql redis zookeeper kafka kafdrop
                 """
                 // 인프라 Ready 대기 (최대 60초)
