@@ -41,7 +41,14 @@ pipeline {
             }
         }
 
-        // ② 전체 멀티모듈 컴파일 + 테스트 (병렬)
+        // ② gradlew 실행 권한 보장 (git checkout 후 Linux 환경 대비)
+        stage('Prepare') {
+            steps {
+                sh 'chmod +x gradlew'
+            }
+        }
+
+        // ③ 전체 멀티모듈 컴파일 + 테스트 (병렬)
         stage('Build & Test') {
             parallel {
 
@@ -107,7 +114,7 @@ pipeline {
             }
         }
 
-        // ③ Docker 이미지 병렬 빌드
+        // ④ Docker 이미지 병렬 빌드
         stage('Docker Build') {
             parallel {
 
@@ -197,7 +204,7 @@ pipeline {
             }
         }
 
-        // ④ 인프라 기동 (mysql, redis, kafka 등)
+        // ⑤ 인프라 기동 (mysql, redis, kafka 등)
         stage('Infrastructure Up') {
             steps {
                 sh """
@@ -216,7 +223,7 @@ pipeline {
             }
         }
 
-        // ⑤ 마이크로서비스 병렬 배포 (--no-deps: 타 서비스 재시작 방지)
+        // ⑥ 마이크로서비스 병렬 배포 (--no-deps: 타 서비스 재시작 방지)
         stage('Deploy Services') {
             parallel {
                 stage('deploy: api-gateway') {
@@ -252,7 +259,7 @@ pipeline {
             }
         }
 
-        // ⑥ 헬스체크 (6개 서비스 모두 확인)
+        // ⑦ 헬스체크 (6개 서비스 모두 확인)
         stage('Health Check') {
             steps {
                 script {
