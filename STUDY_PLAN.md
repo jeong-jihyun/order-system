@@ -201,6 +201,8 @@
 - 수동 구현: `objectMapper.readValue()`(역직렬화) + `writeValueAsString()`(직렬화)
 - 체크 예외: `JsonProcessingException` → `try-catch` 필수
 - TTL 생략 시 영구 저장 → 오래된 데이터 무한 반환 위험
+
+**학습 노트:** [docs/day9_redis_ttl_cache_aside.md](docs/day9_redis_ttl_cache_aside.md)
 ### 🔲 Day 10 (04/15) — Kafka Producer 직접 작성 + 파티션/직렬화 이해
 ### 🔲 Day 11 (04/16) — Kafka Consumer 직접 작성 + DLQ 개념
 ### 🔲 Day 12 (04/17) — Stream 심화 + Generic 유틸 조합 실습
