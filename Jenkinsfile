@@ -207,10 +207,15 @@ pipeline {
         // ⑤ 인프라 기동 (mysql, redis, kafka 등)
         stage('Infrastructure Up') {
             steps {
-                // 인프라 컨테이너 직접 강제 제거 — compose rm이 인식 못하는 컨테이너까지 확실히 삭제
+                // 인프라 + 서비스 컨테이너 전체 강제 제거 (Name Conflict 완전 방지)
                 sh """
-                    docker rm -f exchange-zookeeper exchange-kafka exchange-redis \
-                        exchange-mysql exchange-kafdrop 2>/dev/null || true
+                    docker rm -f \
+                        exchange-zookeeper exchange-kafka exchange-redis \
+                        exchange-mysql exchange-kafdrop \
+                        exchange-api-gateway exchange-order-service \
+                        exchange-account-service exchange-market-data \
+                        exchange-trading-engine exchange-settlement-service \
+                        2>/dev/null || true
                 """
                 sh """
                     docker compose -p ${COMPOSE_P} up -d \
