@@ -4,6 +4,7 @@ import com.exchange.order.config.KafkaConfig;
 import com.exchange.order.domain.order.dto.OrderRequest;
 import com.exchange.order.domain.order.dto.OrderResponse;
 import com.exchange.order.domain.order.entity.Order;
+import com.exchange.order.domain.order.entity.OrderSide;
 import com.exchange.order.domain.order.entity.OrderStatus;
 import com.exchange.order.domain.order.entity.OrderType;
 import com.exchange.order.domain.order.event.OrderCreatedEvent;
@@ -59,13 +60,14 @@ public class OrderCommandService {
         strategy.preProcess(request);
 
         // 3. side 결정
-        String side = (request.getSide() != null && !request.getSide().isBlank())
+        String sideStr = (request.getSide() != null && !request.getSide().isBlank())
                 ? request.getSide().toUpperCase() : "BUY";
+        OrderSide side = OrderSide.valueOf(sideStr);
 
         // 4. 매수 주문 시 증거금 동결 (account-service 호출)
         BigDecimal orderAmount = request.getTotalPrice()
-                .multiply(BigDecimal.valueOf(request.getQuantity()));
-        if ("BUY".equalsIgnoreCase(side)) {
+                .multiply(request.getQuantity());
+        if (OrderSide.BUY == side) {
             boolean frozen = accountServiceClient.freezeBalance(request.getCustomerName(), orderAmount);
             if (!frozen) {
                 throw new IllegalStateException("잔고가 부족합니다. 증거금 동결 실패.");

@@ -26,8 +26,8 @@ public class Order {
     @Column(nullable = false, length = 100)
     private String productName;
 
-    @Column(nullable = false)
-    private Integer quantity;
+    @Column(nullable = false, precision = 20, scale = 8)
+    private BigDecimal quantity;
 
     @Column(nullable = false, precision = 12, scale = 2)
     private BigDecimal totalPrice;
@@ -38,9 +38,10 @@ public class Order {
     private OrderType orderType = OrderType.LIMIT;
 
     /** 주문 방향: BUY(매수) | SELL(매도) */
+    @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 10)
     @Builder.Default
-    private String side = "BUY";
+    private OrderSide side = OrderSide.BUY;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 20)

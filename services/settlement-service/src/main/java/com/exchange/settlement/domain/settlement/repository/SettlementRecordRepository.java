@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface SettlementRecordRepository extends JpaRepository<SettlementRecord, Long> {
@@ -21,5 +22,13 @@ public interface SettlementRecordRepository extends JpaRepository<SettlementReco
 
     List<SettlementRecord> findByUsernameOrderByExecutedAtDesc(String username);
 
+    /**
+     * @deprecated executedAt 없이 orderId+side 만으로는 부분 체결 중복 검사 불가
+     *             existsByOrderIdAndSideAndExecutedAt 사용 권고
+     */
+    @Deprecated
     boolean existsByOrderIdAndSide(Long orderId, String side);
+
+    /** 부분 체결 정산 중복 방지 — (orderId, side, executedAt) 3중 복합 조건 */
+    boolean existsByOrderIdAndSideAndExecutedAt(Long orderId, String side, LocalDateTime executedAt);
 }

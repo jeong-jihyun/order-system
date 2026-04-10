@@ -203,11 +203,54 @@
 - TTL 생략 시 영구 저장 → 오래된 데이터 무한 반환 위험
 
 **학습 노트:** [docs/day9_redis_ttl_cache_aside.md](docs/day9_redis_ttl_cache_aside.md)
+
+---
+
+### ✅ 버그 분석 & Phase 1 코드 수정 (04/10 완료)
+
+**분석한 보고서 (bug/ 폴더):**
+
+| 파일 | 분석 내용 |
+|------|----------|
+| `1.증권거래소 시스템 전문가 분석 보고서.md` | 전체 아키텍처 평가 — Critical 3건 · Major 5건 · Minor 4건 |
+| `2.대용량 금융 거래 시스템 아키텍처 분석.md` | 레이어 분리 · 데이터 일관성 · Kafka SPOF 평가 |
+| `3.주문 매칭 엔진 전문가 분석 보고서` | 매칭 엔진 Race Condition · FIFO 정밀도 평가 |
+| `4.Pre-Trade_Post-Trade 리스크 관리 전문가 분석 보고서` | 신용한도·서킷브레이커 부재 평가 (리스크 관리 20%) |
+| `5.금융 규제 컴플라이언스 분석 보고서` | 감사 추적·KYC·RBAC 규제 현황 평가 |
+
+**오늘 수정한 코드 (Phase 1):**
+
+| 파일 | 수정 내용 | 해결한 보고서 항목 |
+|------|----------|-----------------|
+| `OrderStatus.java` | `PARTIALLY_FILLED`, `EXPIRED` 추가 + State Machine 전이 규칙 | 보고서 1 — FIX 5.0 생명주기 |
+| `Order.java` | `side` String → `OrderSide` enum, `quantity` Integer → BigDecimal | 보고서 1 MAJOR-01/03 |
+| `SettlementRecordRepository.java` | `existsByOrderIdAndSideAndExecutedAt` 추가 | 보고서 1 CRITICAL-03 |
+| `SettlementService.java` | 부분 체결 dedup을 `executedAt` 기반 3중 조건으로 수정 | 보고서 1 CRITICAL-03 |
+
+**남은 수정 사항 (Phase 2 — 아래 학습일에 통합):**
+
+| 항목 | 대상 Day | 보고서 항목 |
+|------|---------|------------|
+| Kafka DLQ + `enable-auto-commit: false` | Day 11 | 보고서 1 MAJOR-04 |
+| `StopOrderManager` Redis 영속화 | Day 13 | 보고서 1 CRITICAL-02 |
+| `AccountServiceClient` WebClient + Timeout | Day 14 | 보고서 1 MAJOR-05 |
+| `OrderBook` ReentrantReadWriteLock | Day 22 | 보고서 1 MAJOR-02 |
+
+---
+
 ### 🔲 Day 10 (04/15) — Kafka Producer 직접 작성 + 파티션/직렬화 이해
-### 🔲 Day 11 (04/16) — Kafka Consumer 직접 작성 + DLQ 개념
+- Producer 설정: `acks: all`, `enable-idempotence: true` (At-Least-Once → Exactly-Once 강화)
+- 파티션 전략: symbol별 파티셔닝으로 TPS 향상 원리
+### 🔲 Day 11 (04/16) — Kafka Consumer 직접 작성 + DLQ 구성 (MAJOR-04 해결)
+- `enable-auto-commit: false` + `DeadLetterPublishingRecoverer` 실습
+- 예외 삼킴 → 메시지 소실 문제를 직접 확인 후 DLQ로 해결
 ### 🔲 Day 12 (04/17) — Stream 심화 + Generic 유틸 조합 실습
-### 🔲 Day 13 (04/18) — Kafka + Redis 통합 실습 (주문 이벤트 → 캐시 갱신)
-### 🔲 Day 14 (04/19) — Week 2 복습 + Swagger 문서화
+### 🔲 Day 13 (04/18) — Kafka + Redis 통합 실습 + StopOrderManager Redis 영속화 (CRITICAL-02 해결)
+- 주문 이벤트 → 캐시 갱신 원래 실습
+- `StopOrderManager` 인메모리 Map → Redis Sorted Set 영속화 추가 실습
+### 🔲 Day 14 (04/19) — Week 2 복습 + Swagger + AccountServiceClient 개선 (MAJOR-05 해결)
+- Swagger 문서화 원래 실습
+- `RestTemplate` (타임아웃 없음) → `WebClient` + connect/read timeout 설정 실습
 
 ---
 
@@ -229,7 +272,9 @@
 
 > 목표: WebSocket 실시간 연동, 테스트 작성, 전체 스택 통합 실행
 
-### 🔲 Day 22 (04/27) — Spring WebSocket STOMP 서버 직접 분석
+### 🔲 Day 22 (04/27) — Spring WebSocket STOMP 서버 직접 분석 + OrderBook Lock 개선 (MAJOR-02 해결)
+- WebSocket 원래 분석 실습
+- `OrderBook` synchronized → `ReentrantReadWriteLock` (read: snapshot, write: match/cancel) 적용
 ### 🔲 Day 23 (04/28) — React useWebSocket Custom Hook 직접 작성
 ### 🔲 Day 24 (04/29) — JUnit5 + Mockito 단위 테스트 직접 작성
 ### 🔲 Day 25 (04/30) — Vitest + React Testing Library 테스트 직접 작성
@@ -248,3 +293,19 @@
 | Week 3 | 0 | 7 | 0% |
 | Week 4 | 0 | 7 | 0% |
 | **전체** | **9** | **28** | **32%** |
+
+### 버그 보고서 수정 현황 (Phase 1/2)
+
+| 항목 | 심각도 | 상태 | 처리일 |
+|------|--------|------|--------|
+| `PARTIALLY_FILLED`, `EXPIRED` 상태 추가 | MINOR | ✅ 완료 | 04/10 |
+| `Order.side` String → `OrderSide` enum | MAJOR-01 | ✅ 완료 | 04/10 |
+| `Order.quantity` Integer → BigDecimal | MAJOR-03 | ✅ 완료 | 04/10 |
+| `SettlementService` 부분 체결 dedup 수정 | CRITICAL-03 | ✅ 완료 | 04/10 |
+| Kafka DLQ + `enable-auto-commit: false` | MAJOR-04 | 🔲 Day 11 | 04/16 |
+| `StopOrderManager` Redis 영속화 | CRITICAL-02 | 🔲 Day 13 | 04/18 |
+| `AccountServiceClient` WebClient + Timeout | MAJOR-05 | 🔲 Day 14 | 04/19 |
+| `OrderBook` ReentrantReadWriteLock | MAJOR-02 | 🔲 Day 22 | 04/27 |
+| Saga Pattern (증거금 원자성) | CRITICAL-01 | 📋 28일 이후 | — |
+| Pre-Trade Risk Check (서킷브레이커 등) | 누락 모듈 | 📋 28일 이후 | — |
+| Audit Trail (자본시장법 5년 보존) | 누락 모듈 | 📋 28일 이후 | — |

@@ -1,6 +1,7 @@
 package com.exchange.order.domain.order.dto;
 
 import com.exchange.order.domain.order.entity.Order;
+import com.exchange.order.domain.order.entity.OrderSide;
 import com.exchange.order.domain.order.entity.OrderStatus;
 import com.exchange.order.domain.order.entity.OrderType;
 import lombok.AllArgsConstructor;
@@ -19,10 +20,10 @@ public class OrderResponse {
     private Long id;
     private String customerName;
     private String productName;
-    private Integer quantity;
+    private BigDecimal quantity;
     private BigDecimal totalPrice;
     private OrderType orderType;
-    private String side;
+    private OrderSide side;
     private BigDecimal stopPrice;
     private OrderStatus status;
     private LocalDateTime createdAt;

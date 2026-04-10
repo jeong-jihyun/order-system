@@ -25,8 +25,8 @@ public class OrderRequest {
 
     @NotNull(message = "수량은 필수입니다")
     @Positive(message = "수량은 양수여야 합니다")
-    @Max(value = 10000, message = "수량은 10,000 이하여야 합니다")
-    private Integer quantity;
+    @DecimalMax(value = "10000", message = "수량은 10,000 이하여야 합니다")
+    private BigDecimal quantity;
 
     @NotNull(message = "총 금액은 필수입니다")
     @Positive(message = "총 금액은 양수여야 합니다")

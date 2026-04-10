@@ -45,8 +45,8 @@ public class SettlementService {
         BigDecimal grossAmount = executionPrice.multiply(executionQuantity)
                 .setScale(2, RoundingMode.HALF_UP);
 
-        // 매수 정산 레코드
-        if (!settlementRepo.existsByOrderIdAndSide(buyOrderId, "BUY")) {
+        // 매수 정산 레코드 — (orderId, side, executedAt) 복합 조건으로 부분 체결 중복 방지
+        if (!settlementRepo.existsByOrderIdAndSideAndExecutedAt(buyOrderId, "BUY", executedAt)) {
             FeeCalculator.FeeResult buyFee = feeCalculator.calculate(grossAmount, "BUY");
             SettlementRecord buyRecord = SettlementRecord.builder()
                     .orderId(buyOrderId)
@@ -69,8 +69,8 @@ public class SettlementService {
                     buyOrderId, grossAmount, buyFee.commission(), settlementDate);
         }
 
-        // 매도 정산 레코드
-        if (!settlementRepo.existsByOrderIdAndSide(sellOrderId, "SELL")) {
+        // 매도 정산 레코드 — (orderId, side, executedAt) 복합 조건으로 부분 체결 중복 방지
+        if (!settlementRepo.existsByOrderIdAndSideAndExecutedAt(sellOrderId, "SELL", executedAt)) {
             FeeCalculator.FeeResult sellFee = feeCalculator.calculate(grossAmount, "SELL");
             SettlementRecord sellRecord = SettlementRecord.builder()
                     .orderId(sellOrderId)

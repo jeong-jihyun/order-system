@@ -15,7 +15,13 @@ public enum OrderStatus {
     },
     PROCESSING {
         @Override public Set<OrderStatus> allowedTransitions() {
-            return EnumSet.of(COMPLETED, CANCELLED);
+            return EnumSet.of(PARTIALLY_FILLED, COMPLETED, CANCELLED, EXPIRED);
+        }
+    },
+    /** 부분 체결 — 잔여 수량이 호가창에 남아있음 (FIX 5.0 OrdStatus=1) */
+    PARTIALLY_FILLED {
+        @Override public Set<OrderStatus> allowedTransitions() {
+            return EnumSet.of(PARTIALLY_FILLED, COMPLETED, CANCELLED, EXPIRED);
         }
     },
     COMPLETED {
@@ -24,6 +30,12 @@ public enum OrderStatus {
         }
     },
     CANCELLED {
+        @Override public Set<OrderStatus> allowedTransitions() {
+            return EnumSet.noneOf(OrderStatus.class);
+        }
+    },
+    /** IOC/FOK/GTD 주문 만료 (FIX 5.0 OrdStatus=C) */
+    EXPIRED {
         @Override public Set<OrderStatus> allowedTransitions() {
             return EnumSet.noneOf(OrderStatus.class);
         }
@@ -36,6 +48,6 @@ public enum OrderStatus {
     }
 
     public boolean isTerminal() {
-        return this == COMPLETED || this == CANCELLED;
+        return this == COMPLETED || this == CANCELLED || this == EXPIRED;
     }
 }
