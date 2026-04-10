@@ -207,8 +207,10 @@ pipeline {
         // ⑤ 인프라 기동 (mysql, redis, kafka 등)
         stage('Infrastructure Up') {
             steps {
+                // 이전 인프라 컨테이너 명시적 제거 (Name Conflict 방지)
+                sh "docker compose -p ${COMPOSE_P} rm -sf zookeeper kafka redis mysql kafdrop || true"
                 sh """
-                    docker compose -p ${COMPOSE_P} up -d --force-recreate \
+                    docker compose -p ${COMPOSE_P} up -d \
                         mysql redis zookeeper kafka kafdrop
                 """
                 // 인프라 Ready 대기 (최대 60초)
