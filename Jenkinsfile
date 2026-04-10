@@ -1,12 +1,12 @@
 // ============================================================
-// Order Exchange System ? Jenkinsfile (ÃÖÀûÈ­)
+// Order Exchange System ? Jenkinsfile (ï¿½ï¿½ï¿½ï¿½È­)
 //
-// ÃÖÀûÈ­ Ç×¸ñ:
-//   1. Build&Test: ¼­ºñ½ºº° Gradle 6È¸ ¡æ 1È¸ ÅëÇÕ ½ÇÇà (--parallel)
-//   2. JAR Build:  bootJarµµ 1È¸ ÅëÇÕ ½ÇÇà
-//   3. Docker:     BuildKit(DOCKER_BUILDKIT=1) È°¼ºÈ­ ? ·¹ÀÌ¾î Ä³½Ã È°¿ë
-//   4. MySQL ´ë±â: -p exchange ÇÃ·¡±× Ãß°¡ (¿Ã¹Ù¸¥ ÄÁÅ×ÀÌ³Ê ÁöÁ¤)
-//   5. Health Check: services.each ¼øÂ÷ ¡æ parallel º´·Ä È®ÀÎ
+// ï¿½ï¿½ï¿½ï¿½È­ ï¿½×¸ï¿½:
+//   1. Build&Test: ï¿½ï¿½ï¿½ñ½ººï¿½ Gradle 6È¸ ï¿½ï¿½ 1È¸ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ (--parallel)
+//   2. JAR Build:  bootJarï¿½ï¿½ 1È¸ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
+//   3. Docker:     BuildKit(DOCKER_BUILDKIT=1) È°ï¿½ï¿½È­ ? ï¿½ï¿½ï¿½Ì¾ï¿½ Ä³ï¿½ï¿½ È°ï¿½ï¿½
+//   4. MySQL ï¿½ï¿½ï¿½: -p exchange ï¿½Ã·ï¿½ï¿½ï¿½ ï¿½ß°ï¿½ (ï¿½Ã¹Ù¸ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ì³ï¿½ ï¿½ï¿½ï¿½ï¿½)
+//   5. Health Check: services.each ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ parallel ï¿½ï¿½ï¿½ï¿½ È®ï¿½ï¿½
 // ============================================================
 pipeline {
     agent any
@@ -38,7 +38,7 @@ pipeline {
                     ).trim()
                     env.IMAGE_TAG = "${env.BRANCH_NAME}-${env.GIT_COMMIT_SHORT}"
                 }
-                echo "Ã¼Å©¾Æ¿ô ¿Ï·á ? branch=${env.BRANCH_NAME}, commit=${env.GIT_COMMIT_SHORT}"
+                echo "Ã¼Å©ï¿½Æ¿ï¿½ ï¿½Ï·ï¿½ ? branch=${env.BRANCH_NAME}, commit=${env.GIT_COMMIT_SHORT}"
             }
         }
 
@@ -48,7 +48,7 @@ pipeline {
             }
         }
 
-        // ¨é ÅëÇÕ Å×½ºÆ® ? JVM 1È¸ ±âµ¿, °øÅë ¸ðµâ Áßº¹ ÄÄÆÄÀÏ Á¦°Å
+        // ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½×½ï¿½Æ® ? JVM 1È¸ ï¿½âµ¿, ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ ï¿½ßºï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
         stage('Build & Test') {
             steps {
                 sh '''
@@ -72,7 +72,7 @@ pipeline {
             }
         }
 
-        // ¨ê ÅëÇÕ bootJar ºôµå ? 1È¸ Gradle ½ÇÇà
+        // ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ bootJar ï¿½ï¿½ï¿½ï¿½ ? 1È¸ Gradle ï¿½ï¿½ï¿½ï¿½
         stage('JAR Build') {
             steps {
                 sh '''
@@ -90,7 +90,7 @@ pipeline {
             }
         }
 
-        // ¨ë Docker ÀÌ¹ÌÁö º´·Ä ºôµå (BuildKit + cache-from)
+        // ï¿½ï¿½ Docker ï¿½Ì¹ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ (BuildKit + cache-from)
         stage('Docker Build') {
             parallel {
                 stage('build: api-gateway') {
@@ -180,7 +180,7 @@ pipeline {
             }
         }
 
-        // ¨ì ÄÁÅ×ÀÌ³Ê ÀüÃ¼ Á¦°Å + ÀÎÇÁ¶ó ±âµ¿
+        // ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ï¿½Ì³ï¿½ ï¿½ï¿½Ã¼ ï¿½ï¿½ï¿½ï¿½ + ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½âµ¿
         stage('Infrastructure Up') {
             steps {
                 sh """
@@ -191,8 +191,8 @@ pipeline {
                         exchange-account-service exchange-market-data \
                         exchange-trading-engine exchange-settlement-service \
                         2>/dev/null || true
-                """
-                sh """
+                """                // Kafka/Zookeeper ë³¼ë¥¨ ì œê±° â€” ClusterID ë¶ˆì¼ì¹˜ ë°©ì§€ (InconsistentClusterIdException)
+                sh "docker volume rm exchange_kafka-data exchange_zookeeper-data 2>/dev/null || true"                sh """
                     docker compose -p ${COMPOSE_P} up -d \
                         mysql redis zookeeper kafka kafdrop
                 """
@@ -201,14 +201,14 @@ pipeline {
                         docker compose -p ${COMPOSE_P} exec -T mysql \
                             mysqladmin ping -uroot -ppassword --silent 2>/dev/null \
                             && echo "MySQL Ready" && break
-                        echo "MySQL ´ë±â Áß... (\$i/12)"
+                        echo "MySQL ï¿½ï¿½ï¿½ ï¿½ï¿½... (\$i/12)"
                         sleep 5
                     done
                 """
             }
         }
 
-        // ¨í ¸¶ÀÌÅ©·Î¼­ºñ½º º´·Ä ¹èÆ÷
+        // ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½Å©ï¿½Î¼ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½
         stage('Deploy Services') {
             parallel {
                 stage('deploy: api-gateway') {
@@ -232,7 +232,7 @@ pipeline {
             }
         }
 
-        // ¨î Çï½ºÃ¼Å© ? 6°³ ¼­ºñ½º º´·Ä È®ÀÎ (¼øÂ÷ 60ÃÊ ¡æ º´·Ä ¾à 10~30ÃÊ)
+        // ï¿½ï¿½ ï¿½ï½ºÃ¼Å© ? 6ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ È®ï¿½ï¿½ (ï¿½ï¿½ï¿½ï¿½ 60ï¿½ï¿½ ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ 10~30ï¿½ï¿½)
         stage('Health Check') {
             steps {
                 script {
@@ -251,7 +251,7 @@ pipeline {
                                 sleep(time: 10, unit: 'SECONDS')
                                 sh "curl -sf http://localhost:${port}/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
                             }
-                            echo "${name} Çï½ºÃ¼Å© Åë°ú"
+                            echo "${name} ï¿½ï½ºÃ¼Å© ï¿½ï¿½ï¿½"
                         }
                     }
                     parallel checks
@@ -262,10 +262,10 @@ pipeline {
 
     post {
         success {
-            echo "ÆÄÀÌÇÁ¶óÀÎ ¼º°ø ? branch=${env.BRANCH_NAME}, tag=${env.IMAGE_TAG}"
+            echo "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ? branch=${env.BRANCH_NAME}, tag=${env.IMAGE_TAG}"
         }
         failure {
-            echo "ÆÄÀÌÇÁ¶óÀÎ ½ÇÆÐ ? ·Î±×¸¦ È®ÀÎÇÏ¼¼¿ä."
+            echo "ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ ï¿½ï¿½ï¿½ï¿½ ? ï¿½Î±×¸ï¿½ È®ï¿½ï¿½ï¿½Ï¼ï¿½ï¿½ï¿½."
             sh(script: "docker compose -p exchange logs --tail=50", returnStatus: true)
         }
         always {
