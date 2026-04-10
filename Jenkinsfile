@@ -289,8 +289,7 @@ pipeline {
         }
         failure {
             echo "파이프라인 실패 — 로그를 확인하세요."
-            // 실패 시 최근 로그 수집
-            sh 'docker compose -p ${COMPOSE_P} logs --tail=50 2>/dev/null || true'
+            sh(script: "docker compose -p exchange logs --tail=50", returnStatus: true)
         }
         always {
             // 빌드 캐시 최적화 (dangling 이미지 정리)
