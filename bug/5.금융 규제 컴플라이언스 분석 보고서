@@ -1,0 +1,858 @@
+# ⚖️ 금융 규제 컴플라이언스 분석 보고서
+
+> **분석 관점**: 자본시장법 · KRX 업무규정 · MiFID II (EU) · Dodd-Frank (US)  
+> **대상 시스템**: order-system 전체 마이크로서비스  
+> **분석 기준일**: 2026-04-10
+
+---
+
+## 규제 컴플라이언스 현황 요약
+
+```
+┌─────────────────────────────────────────────────────────┐
+│              규제 요건 충족률 (현재 기준)                  │
+├──────────────────────────┬──────────────────────────────┤
+│  감사 추적(Audit Trail)  │  ██░░░░░░░░  15%  → 법적 위반 │
+│  개인정보 보호           │  ███░░░░░░░  25%  → 위반 위험 │
+│  투자자 보호(KYC/AML)    │  █░░░░░░░░░  10%  → 법적 위반 │
+│  거래 보고 의무          │  █░░░░░░░░░  10%  → 법적 위반 │
+│  접근 통제(RBAC)         │  ████░░░░░░  35%  → 위반 위험 │
+│  직무 분리(SoD)          │  ░░░░░░░░░░   0%  → 즉각 조치 │
+│  보안 모니터링           │  ██░░░░░░░░  15%  → 위반 위험 │
+└──────────────────────────┴──────────────────────────────┘
+
+❌ 즉각 업무정지 처분 수준 위반: 3건
+⚠️ 과태료/제재 수준 위반: 8건
+```
+
+---
+
+## 1. 감사 추적 (Audit Trail)
+
+---
+
+### 🔴 CRITICAL-01. 감사 로그 — 파일 로그만 존재, 변조 가능
+
+**현재 구현 수준**: ★☆☆☆☆ (1/5)  
+**규제 위반 시 제재**: 자본시장법 제60조 위반 → 과태료 1억원 이하, 금융위 업무개선 명령  
+**즉각 조치**: ✅ 필수
+
+```java
+// 현재 전체 시스템의 "감사 로그":
+log.info("[주문 생성] orderId={}, type={}", savedOrder.getId(), orderType);
+log.info("[체결] symbol={}, price={}, qty={}", ...);
+log.info("[상태 변경] orderId={}, {} → {}", ...);
+
+// 문제점:
+// ❌ SLF4J 파일 로그 → 로테이션·삭제 가능 (변조 가능)
+// ❌ 회원사 ID 없음 (customerName 문자열만 있고, 공식 회원사 코드 없음)
+// ❌ 투자자 ID 없음 (CI/등록번호 연계 없음)
+// ❌ 주문 시각 정밀도: LocalDateTime (100ns~1ms) → 마이크로초 미충족
+// ❌ 접속 IP 없음
+// ❌ 채널 정보 없음 (HTS/MTS/API 구분 없음)
+// ❌ 변조 감지 메커니즘 없음 (해시체인 없음)
+// ❌ 5년 보존 체계 없음 (로그 파일은 통상 30~90일)
+```
+
+**규제 요건 대조**:
+
+| 필수 필드 | 규제 근거 | 현재 포함 여부 |
+|---|---|---|
+| 회원사 코드 | KRX 업무규정 제84조 | ❌ |
+| 투자자 식별코드 | 자본시장법 제178조 | ❌ |
+| 주문 시각 (μs) | MiFID II RTS 25 | ❌ (ms 수준) |
+| 접속 IP | 자본시장법 시행령 제208조 | ❌ |
+| 채널 코드 (HTS/API) | KRX 회원관리기준 | ❌ |
+| 주문 원장 번호 | KRX 업무규정 제83조 | ❌ |
+| 체결 확인 번호 (ExecID) | FIX Tag 17 | ❌ |
+
+**권고 구현 — 불변 감사 이벤트 저장소**:
+
+```java
+// 1. 감사 이벤트 엔티티 (Append-Only, 수정/삭제 불가)
+@Entity
+@Table(name = "audit_trail",
+       indexes = {
+           @Index(name = "idx_audit_member_time",  columnList = "memberId, eventTime"),
+           @Index(name = "idx_audit_order",        columnList = "orderId"),
+           @Index(name = "idx_audit_investor",     columnList = "investorCi, eventTime"),
+           @Index(name = "idx_audit_symbol_time",  columnList = "symbol, eventTime")
+       })
+@Immutable  // Hibernate: UPDATE/DELETE 차단
+public class AuditTrail {
+
+    @Id
+    @Column(columnDefinition = "CHAR(36)")
+    private String trailId = UUID.randomUUID().toString();
+
+    // ── 이벤트 분류 ─────────────────────────────
+    @Column(nullable = false, length = 40)
+    private String eventType;          // ORDER_RECEIVED | ORDER_MATCHED | ORDER_CANCELLED...
+
+    // ── 주체 정보 ────────────────────────────────
+    @Column(nullable = false, length = 10)
+    private String memberId;           // KRX 회원사 코드 (예: 00180)
+
+    @Column(nullable = false, length = 20)
+    private String accountNo;          // 계좌번호 (AES-256 암호화 저장)
+
+    @Column(nullable = false, length = 88)
+    private String investorCi;         // 투자자 CI (Connecting Information, 해시)
+
+    // ── 주문/체결 상세 ──────────────────────────
+    @Column(nullable = false, length = 36)
+    private String orderId;            // 거래소 주문 번호 (UUID)
+
+    @Column(length = 64)
+    private String clOrdId;            // FIX Tag 11: 회원사 자체 주문 번호
+
+    @Column(length = 64)
+    private String execId;             // FIX Tag 17: 체결 확인 번호
+
+    @Column(length = 20)
+    private String symbol;             // 종목코드
+
+    @Column(columnDefinition = "TEXT")
+    private String payload;            // 전체 파라미터 JSON (암호화 옵션)
+
+    // ── 시각 (나노초 정밀도) ─────────────────────
+    @Column(nullable = false)
+    private Instant eventTime;         // UTC 나노초
+
+    @Column(nullable = false)
+    private Instant receivedAt;        // 게이트웨이 수신 시각 (MiFID II RTS 25)
+
+    // ── 접속 정보 ────────────────────────────────
+    @Column(length = 45)
+    private String sourceIp;           // IPv4/IPv6
+
+    @Column(length = 10)
+    private String channelCode;        // HTS | MTS | API | FIX
+
+    @Column(length = 40)
+    private String userAgent;          // 클라이언트 앱 버전
+
+    // ── 무결성 보장 (해시체인) ───────────────────
+    @Column(nullable = false, length = 64)
+    private String prevTrailHash;      // 이전 감사 레코드의 해시
+
+    @Column(nullable = false, length = 64)
+    private String trailHash;          // SHA-256(prevHash + payload + eventTime + trailId)
+
+    @Column(nullable = false, length = 30)
+    private String serverId;           // 처리 서버 식별자
+}
+
+// 2. 감사 서비스 — 비동기 기록 (주문 경로 지연 최소화)
+@Service
+public class AuditTrailService {
+
+    private final AuditTrailRepository auditRepo;
+    private final String serverId = System.getenv("SERVER_ID");
+
+    @Async("auditExecutor")
+    public CompletableFuture<Void> record(AuditEvent event) {
+        String prevHash = auditRepo.getLastHash(event.getMemberId())
+                .orElse("GENESIS");
+
+        String content = prevHash + event.getPayload()
+                + event.getEventTime().toString() + event.getTrailId();
+        String trailHash = DigestUtils.sha256Hex(content);
+
+        AuditTrail trail = AuditTrail.builder()
+                .trailId(UUID.randomUUID().toString())
+                .eventType(event.getType().name())
+                .memberId(event.getMemberId())
+                .accountNo(aes256Encrypt(event.getAccountNo()))  // 암호화
+                .investorCi(sha256Hash(event.getCi()))           // 해시
+                .orderId(event.getOrderId())
+                .payload(event.getPayload())
+                .eventTime(Instant.now())
+                .receivedAt(event.getReceivedAt())
+                .sourceIp(event.getSourceIp())
+                .channelCode(event.getChannelCode())
+                .prevTrailHash(prevHash)
+                .trailHash(trailHash)
+                .serverId(serverId)
+                .build();
+
+        auditRepo.save(trail);
+        return CompletableFuture.completedFuture(null);
+    }
+}
+
+// 3. 5년 데이터 보존 전략
+// MySQL: 연도별 파티셔닝 → Glacier(Cold Storage) 이관
+// application.yml:
+// audit:
+//   retention-years: 5
+//   archive-target: s3://krx-audit-archive/
+//   encryption: AES-256-GCM
+```
+
+---
+
+### 🟠 MAJOR-01. 주문 시각 정밀도 — LocalDateTime (마이크로초 미충족)
+
+**규제 근거**: MiFID II Regulatory Technical Standard (RTS) 25 — 거래소는 주문·체결 시각을 **마이크로초(μs)** 정밀도로 기록 의무
+
+```java
+// 현재: LocalDateTime.now() — 운영체제 의존, 통상 ms 정밀도
+.executedAt(LocalDateTime.now())
+.createdAt(LocalDateTime.now())
+
+// 권고: Instant (JVM 레벨 최대 나노초)
+.executedAt(Instant.now())          // UTC 나노초
+.receivedAt(Instant.now())          // 게이트웨이 수신 시각 별도 기록
+
+// DB 컬럼: DATETIME(6) — MySQL 마이크로초 지원
+// Java 매핑: @Column(columnDefinition = "DATETIME(6)")
+//            private Instant eventTime;
+```
+
+---
+
+### 🟡 MINOR-01. OutboxEvent 발행 후 PUBLISHED 상태 → 재열람 불가
+
+```java
+public void markPublished() {
+    this.status = OutboxStatus.PUBLISHED;  // 발행 완료 후 재처리 경로 없음
+    this.publishedAt = LocalDateTime.now();
+}
+// 감사 목적으로 5년간 원본 Outbox 이벤트를 보존해야 하나
+// PUBLISHED 이후 조회·검색 인터페이스 없음
+```
+
+---
+
+## 2. 개인정보 및 투자자 보호
+
+---
+
+### 🔴 CRITICAL-02. 투자자 식별정보 평문 저장 — 개인정보보호법 위반
+
+**현재 구현 수준**: ★☆☆☆☆  
+**규제 위반 시 제재**: 개인정보보호법 제29조 위반 → 과징금 매출의 3%, 형사처벌 (2년 이하 징역)  
+**즉각 조치**: ✅ 필수
+
+```java
+// Order.java
+private String customerName;   // ❌ 실명 평문 저장
+
+// AccountService — DB 저장
+Account account = Account.builder()
+    .accountNumber("ACC" + UUID.randomUUID()...)  // ❌ 계좌번호 평문
+    .build();
+
+// 전송: AccountServiceClient
+Map<String, Object> body = Map.of("username", username, "amount", amount);
+// ❌ HTTPS 여부 불명 (docker-compose 내부 통신 = HTTP)
+// ❌ username이 개인 식별정보라면 암호화 없이 HTTP Body 전송
+
+// KafkaConfig — Kafka 메시지
+payload.put("customerName", savedOrder.getCustomerName()); // ❌ 평문 발행
+payload.put("buyerUsername", result.getBuyerUsername());   // ❌ 평문 발행
+```
+
+**규제 요건**:
+
+| 규제 | 요건 |
+|---|---|
+| 개인정보보호법 제24조 | 고유식별정보(주민번호·CI) AES-256 암호화 저장 의무 |
+| 개인정보보호법 제29조 | 전송 구간 TLS 1.2+ 암호화 의무 |
+| 자본시장법 시행령 제68조 | 투자자 계좌번호 안전 관리 의무 |
+| 신용정보법 제32조 | 금융거래정보 목적 외 제공 금지 |
+
+**권고 구현**:
+
+```java
+// 1. 계좌번호 암호화 저장
+@Entity
+public class Account {
+    @Convert(converter = AesEncryptConverter.class)  // JPA AttributeConverter
+    @Column(nullable = false, length = 255)          // 암호화 후 길이 증가
+    private String accountNumber;
+
+    @Convert(converter = AesEncryptConverter.class)
+    private String investorName;                     // 실명 암호화
+
+    @Column(nullable = false, length = 88)           // 단방향 해시 (검색용)
+    private String accountNumberHash;                // SHA-256(accountNumber + salt)
+}
+
+// 2. AES-256-GCM 통합 컨버터
+@Component
+public class AesEncryptConverter
+        implements AttributeConverter<String, String> {
+
+    @Value("${security.aes.key}")  // 환경변수에서 주입 (절대 코드에 하드코딩 금지)
+    private String aesKey;
+
+    @Override
+    public String convertToDatabaseColumn(String plain) {
+        if (plain == null) return null;
+        return AesGcmUtil.encrypt(plain, aesKey);  // AES-256-GCM
+    }
+
+    @Override
+    public String convertToEntityAttribute(String encrypted) {
+        if (encrypted == null) return null;
+        return AesGcmUtil.decrypt(encrypted, aesKey);
+    }
+}
+
+// 3. 마이크로서비스 간 통신: 개인식별정보 토큰화
+// → customerName 대신 anonymizedId 전달
+// → 실명은 account-service만 복호화 가능
+public class OrderCreatedEvent {
+    private String anonymizedId;  // "ANON-{SHA256(ci + salt )[:16]}"
+    // customerName 필드 제거
+}
+```
+
+---
+
+### 🔴 CRITICAL-03. KYC / AML 체크 완전 미통합
+
+**현재 구현 수준**: ★☆☆☆☆  
+**규제 위반 시 제재**: 특정금융정보법 제5조의2 위반 → 형사처벌 (3년 이하 징역, 2천만원 이하 벌금)  
+**즉각 조치**: ✅ 필수
+
+```java
+// 현재: 주문 처리 흐름에 KYC/AML 체크 전혀 없음
+// 테러자금조달방지, 자금세탁방지 체크 없이 주문 접수
+
+// 자금세탁방지 의심 시나리오 (현재 감지 불가):
+// - 차명 계좌를 통한 분산 주문 (Smurfing)
+// - 단기간 대규모 현금 입출금 후 주식 거래
+// - 고위험 국가 거주자 주문 (제재국 투자자)
+// - PEP(Political Exposed Person) 거래
+```
+
+**권고 구현 — KYC/AML 통합 게이트**:
+
+```java
+// 계좌 개설 시 KYC 체크
+@Service
+public class KycService {
+
+    private final ExternalKycProvider kycProvider;  // 금융결제원 KYC API
+    private final SanctionListService sanctionList; // OFAC/금융위 제재 명단
+
+    public KycResult verify(String ci, String name, String nationality) {
+        // ❶ 제재 명단 확인 (OFAC, UN, 금융위)
+        if (sanctionList.isMatch(name, nationality)) {
+            return KycResult.REJECTED_SANCTIONS;
+        }
+
+        // ❷ PEP(정치적 노출 인물) 확인
+        if (pepDatabase.isMatch(ci)) {
+            return KycResult.ENHANCED_DUE_DILIGENCE;  // 강화 실사 필요
+        }
+
+        // ❸ 금융결제원 실명 확인
+        boolean verified = kycProvider.verifyIdentity(ci, name);
+        return verified ? KycResult.PASSED : KycResult.REJECTED;
+    }
+}
+
+// 주문 처리 시 AML 실시간 체크
+@Component
+public class AmlChecker {
+
+    public void checkOrder(String investorCi, BigDecimal amount,
+                            String symbol, String side) {
+        // ❶ 일중 거래 누적 금액 (CTR: Currency Transaction Report)
+        // 2천만원 이상 현금 거래 → FIU 자동 보고
+        BigDecimal dailyVolume = getDailyTradingVolume(investorCi);
+        if (dailyVolume.compareTo(new BigDecimal("20000000")) >= 0) {
+            fiuReportService.submitCTR(investorCi, dailyVolume);
+        }
+
+        // ❷ 비정상 패턴 감지 (STR: Suspicious Transaction Report)
+        if (isAbnormalPattern(investorCi, amount, symbol)) {
+            fiuReportService.submitSTR(investorCi, amount, "ABNORMAL_PATTERN");
+            auditService.record("AML_SUSPICIOUS", investorCi, amount.toString());
+        }
+
+        // ❸ 제재국 IP 차단 확인 (계좌의 마지막 접속 국가)
+        String accessCountry = sessionService.getLastCountry(investorCi);
+        if (sanctionList.isSanctionedCountry(accessCountry)) {
+            throw new SanctionedCountryException("제재 대상 국가로부터의 접속");
+        }
+    }
+}
+```
+
+---
+
+### 🟠 MAJOR-02. 내부자 거래 감지를 위한 투자자-주문 연계 추적 불가
+
+```java
+// 현재: Order 엔티티에 투자자 고유 ID 없음
+// customerName(문자열)만 있어 같은 사람의 주문을 추적 불가
+// 내부자 정보 이용 거래 사후 조사 시 연계 불가
+
+private String customerName;  // ❌ 이름만으로는 동일인 특정 불가
+                              // (동명이인, 개명 등으로 추적 불가)
+```
+
+**권고**: 투자자 CI 해시를 주문의 핵심 식별자로 사용
+
+```java
+// Order 엔티티에 투자자 고유 식별자 추가
+@Column(nullable = false, length = 88)
+private String investorCiHash;  // SHA-256(CI + 서비스 솔트)
+
+// 내부자 거래 조사 API
+@GetMapping("/regulatory/insider-trading/search")
+@PreAuthorize("hasRole('REGULATOR')")
+public List<OrderAuditRecord> searchByInvestor(
+        @RequestParam String investorCiHash,
+        @RequestParam LocalDate from,
+        @RequestParam LocalDate to) {
+    return auditRepo.findByInvestorCiHashAndEventTimeBetween(
+            investorCiHash, from, to);
+}
+```
+
+---
+
+## 3. 거래 보고 의무
+
+---
+
+### 🔴 CRITICAL-04. 체결 즉시 규제기관 보고 인터페이스 전무
+
+**현재 구현 수준**: ★☆☆☆☆  
+**규제 위반 시 제재**: 자본시장법 제178조, 제396조 → 과태료 1억원 이하, 인가 취소  
+**즉각 조치**: ✅ 필수
+
+```java
+// ExecutionEventProducer.java — 체결 이벤트 발행
+// → settlement-service에만 발행, 규제기관 보고 없음
+kafkaTemplate.send(executionTopic,
+    result.getBuyOrderId().toString(), json);
+
+// 누락된 보고:
+// ❌ 금융감독원 전자공시 (DART) 인터페이스 없음
+// ❌ KOSCOM 주식거래정보시스템 보고 없음
+// ❌ 대량 보유(5%) 자동 감지·보고 없음
+// ❌ 주요주주(10%) 거래 즉시 보고 없음
+// ❌ FIX ExecutionReport (MsgType=8) 미구현
+// ❌ ISO 20022 메시지 미구현
+```
+
+**필수 보고 의무 대조**:
+
+| 보고 의무 | 규제 근거 | 보고 기한 | 현재 구현 |
+|---|---|---|---|
+| 대량 보유(5%) 취득 | 자본시장법 제147조 | 취득일로부터 5일 이내 | ❌ |
+| 주요 주주(10%) 변동 | 자본시장법 제150조 | 변동일 익일 | ❌ |
+| 시장 조성 활동 보고 | KRX 업무규정 제94조 | 매 거래일 | ❌ |
+| 미공개정보 이용 보고 | 자본시장법 제174조 | 즉시 | ❌ |
+| FIU 의심거래보고(STR) | 특정금융정보법 제4조 | 30일 이내 | ❌ |
+| MiFID II 거래 보고 | MiFID II Article 26 | T+1 | ❌ |
+
+**권고 구현 — 규제 보고 서비스 신설**:
+
+```java
+// 규제 보고 전용 서비스 (regulatory-report-service)
+@Service
+public class RegulatoryReportingService {
+
+    // ❶ 체결 즉시 KOSCOM 거래정보시스템 보고
+    @KafkaListener(topics = "execution-events")
+    @Transactional
+    public void reportToKoscom(ExecutionEvent event) {
+        KoscomTradeReport report = KoscomTradeReport.builder()
+            .execId(event.getExecId())
+            .symbol(event.getSymbol())
+            .executionPrice(event.getExecutionPrice())
+            .executionQty(event.getExecutionQuantity())
+            .buyMemberId(event.getBuyMemberId())
+            .sellMemberId(event.getSellMemberId())
+            .tradeTime(event.getExecTime())
+            .reportTime(Instant.now())
+            .build();
+
+        koscomApiClient.submitTradeReport(report); // KOSCOM API
+        auditService.record("REGULATORY_REPORT_KOSCOM", report);
+    }
+
+    // ❷ 대량 보유(5%) 자동 감지 및 보고
+    @Transactional
+    public void checkLargeHolding(String investorCiHash, String symbol) {
+        BigDecimal shares  = positionService.getPosition(investorCiHash, symbol);
+        BigDecimal total   = instrumentService.getTotalShares(symbol);
+        BigDecimal holding = shares.divide(total, 4, RoundingMode.HALF_UP);
+
+        if (holding.compareTo(new BigDecimal("0.05")) >= 0) {
+            LargeHoldingReport report = LargeHoldingReport.builder()
+                .investorCiHash(investorCiHash)
+                .symbol(symbol)
+                .holdingRatio(holding)
+                .reportDeadline(LocalDate.now().plusDays(5)) // 5일 이내
+                .build();
+
+            dartApiClient.submitLargeHolding(report); // DART 전자공시
+            auditService.record("LARGE_HOLDING_REPORT", report);
+        }
+    }
+
+    // ❸ FIX ExecutionReport (MsgType=8) 생성
+    public String buildFIXExecutionReport(ExecutionResult exec) {
+        return new FixMessageBuilder()
+            .field(8,  "FIX.5.0")           // BeginString
+            .field(35, "8")                  // MsgType = ExecutionReport
+            .field(17, exec.getExecId())     // ExecID
+            .field(37, exec.getOrderId())    // OrderID
+            .field(11, exec.getClOrdId())    // ClOrdID
+            .field(150, "2")                 // ExecType = 2 (Trade)
+            .field(39, "2")                  // OrdStatus = 2 (Filled)
+            .field(55, exec.getSymbol())     // Symbol
+            .field(54, exec.getSide())       // Side
+            .field(32, exec.getExecQty())    // LastQty
+            .field(31, exec.getExecPx())     // LastPx
+            .field(14, exec.getCumQty())     // CumQty
+            .field(151, exec.getLeavesQty()) // LeavesQty
+            .field(60, exec.getTransactTime()) // TransactTime (UTC)
+            .build();
+    }
+}
+```
+
+---
+
+### 🔴 CRITICAL-05. 일일 포지션 보고 / 대량 보유 보고 자동화 전무
+
+**규제 위반 시 제재**: 자본시장법 제147조 위반 → 과태료 **2억원 이하**, 임원 형사처벌
+
+```java
+// 현재: 일일 포지션 집계 배치 없음
+// 대량 보유 감시 로직 없음
+// 5% 취득/처분 자동 감지 없음
+```
+
+**권고 — 일일 보고 배치**:
+
+```java
+// 매 거래일 종료 후 T+0 19:00 실행
+@Scheduled(cron = "0 0 19 * * MON-FRI", zone = "Asia/Seoul")
+@Transactional
+public void generateDailyPositionReport() {
+    LocalDate today = LocalDate.now(ZoneId.of("Asia/Seoul"));
+
+    // 종목별 전체 투자자 포지션 집계
+    List<SymbolPosition> positions = positionRepo.aggregateBySymbol(today);
+
+    for (SymbolPosition pos : positions) {
+        // 5% 이상 보유자 감지
+        pos.getHolders().stream()
+            .filter(h -> h.getHoldingRatio().compareTo(new BigDecimal("0.05")) >= 0)
+            .forEach(h -> {
+                // 前日 비교 → 신규 5% 초과 여부 확인
+                BigDecimal prevRatio = holdingHistRepo.getPrevRatio(
+                        h.getInvestorCiHash(), pos.getSymbol());
+                if (prevRatio.compareTo(new BigDecimal("0.05")) < 0) {
+                    // 전일 미만 → 당일 초과: 보고 의무 발생
+                    regulatoryReporter.submitLargeHoldingDisclosure(h, today);
+                }
+            });
+    }
+
+    // 일일 포지션 리포트 저장
+    dailyReportRepo.save(positions, today);
+    auditService.record("DAILY_POSITION_REPORT_GENERATED", today.toString());
+}
+```
+
+---
+
+## 4. 시스템 접근 통제
+
+---
+
+### 🔴 CRITICAL-06. RBAC — 거래 기능 단위 세분화 미흡
+
+**현재 구현 수준**: ★★☆☆☆  
+**규제 위반 시 제재**: 금융감독원 IT보안 검사 지적, 내부통제 취약 → 영업정지
+
+```java
+// JwtAuthenticationGatewayFilterFactory.java
+String role = jwt.getClaim("role").asString();
+// 현재 역할: "USER" | "ADMIN" (2개뿐)
+// → 모든 거래 기능이 "USER" 한 가지로 통제
+```
+
+**현재 RBAC의 문제점**:
+```
+USER 역할:
+  - 주문 접수 ✅
+  - 주문 취소 ✅
+  - 계좌 이체 ✅ (USER가 가능해서는 안 됨)
+  - 호가창 조회 ✅
+  - 포지션 조회 ✅
+
+ADMIN 역할:
+  - 주문 접수 ✅ (관리자가 직접 주문해선 안 됨 — SoD 위반!)
+  - 시스템 설정 ✅
+  - 사용자 관리 ✅
+```
+
+**거래소 표준 RBAC 권고 구조**:
+
+```java
+public enum SystemRole {
+    // 투자자 역할
+    INVESTOR,           // 자기 계좌 주문·조회만 가능
+
+    // 회원사 내부
+    TRADER,             // 주문 접수·취소 (자기 계좌)
+    PORTFOLIO_MANAGER,  // 복수 계좌 주문·포지션 관리
+    RISK_OFFICER,       // 리스크 파라미터 조회·수정, 주문 차단
+    COMPLIANCE_OFFICER, // 감사 로그 조회, 보고서 생성 (주문 입력 불가)
+
+    // 시스템 관리
+    SYSTEM_ADMIN,       // 인프라·설정 관리 (주문 입력 절대 불가)
+    MARKET_OPERATIONS,  // 거래 정지·재개, 가격 제한폭 설정
+
+    // 규제기관
+    REGULATOR,          // 읽기 전용: 감사로그·보고서 조회
+    AUDITOR             // 읽기 전용: 감사 추적 조회
+}
+
+// Spring Security 메서드 레벨 접근 제어
+@RestController
+public class OrderController {
+
+    @PostMapping("/api/v1/orders")
+    @PreAuthorize("hasAnyRole('INVESTOR', 'TRADER', 'PORTFOLIO_MANAGER')")
+    public ResponseEntity<?> createOrder(@RequestBody OrderRequest req,
+                                          Principal principal) {
+        // SYSTEM_ADMIN, COMPLIANCE_OFFICER는 주문 입력 불가
+    }
+
+    @DeleteMapping("/api/v1/orders/{id}")
+    @PreAuthorize("hasAnyRole('TRADER', 'PORTFOLIO_MANAGER', 'RISK_OFFICER')")
+    public ResponseEntity<?> cancelOrder(@PathVariable Long id) { }
+
+    @GetMapping("/api/v1/audit/logs")
+    @PreAuthorize("hasAnyRole('COMPLIANCE_OFFICER', 'REGULATOR', 'AUDITOR')")
+    public ResponseEntity<?> getAuditLogs(...) { }
+
+    @PostMapping("/api/v1/market/halt/{symbol}")
+    @PreAuthorize("hasRole('MARKET_OPERATIONS')")
+    public ResponseEntity<?> haltTrading(@PathVariable String symbol) { }
+}
+```
+
+---
+
+### 🔴 CRITICAL-07. 직무 분리(Segregation of Duties) 완전 미구현
+
+**현재 구현 수준**: ★☆☆☆☆  
+**규제 위반 시 제재**: 금융투자업규정 제4-7조 위반 → 임원 제재, 과태료  
+**즉각 조치**: ✅ 필수
+
+**SoD 위반 사례 (현재 시스템)**:
+```
+ADMIN 계정:
+  ① 주문 입력 가능 → ② 감사 로그 수정 가능 → ③ 결제 승인 가능
+  = 동일 계정이 거래 생성부터 검증까지 전 과정 단독 처리 가능
+  = 가장 기본적인 내부통제 실패
+```
+
+**KRX·금융감독원 요구 SoD 원칙**:
+
+| 행위 A | 행위 B | 분리 여부 |
+|---|---|---|
+| 주문 입력 (Front Office) | 리스크 체크 승인 (Risk) | 별도 계정·시스템 |
+| 거래 체결 | 정산 처리 | 별도 시스템 |
+| 시스템 개발 | 운영 환경 접근 | 별도 계정 |
+| 감사 로그 조회 | 감사 로그 修정 | 수정 완전 차단 |
+| 계좌 생성 | 계좌 입금 | 별도 승인자 |
+
+**권고 구현**:
+
+```java
+// SoD 체크 AOP
+@Aspect
+@Component
+public class SodEnforcementAspect {
+
+    @Before("@annotation(requiresSod)")
+    public void enforceSoD(JoinPoint jp, RequiresSoD requiresSod) {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        String currentRole = extractRole(auth);
+
+        // 주문 입력자는 리스크 파라미터 수정 불가
+        if ("TRADER".equals(currentRole) &&
+            jp.getSignature().getName().contains("updateRiskParam")) {
+            auditService.record("SOD_VIOLATION_ATTEMPT",
+                auth.getName(), jp.getSignature().toString());
+            throw new SodViolationException(
+                "직무 분리 위반: TRADER는 리스크 파라미터 수정 불가");
+        }
+
+        // 시스템 관리자는 주문 입력 불가
+        if ("SYSTEM_ADMIN".equals(currentRole) &&
+            jp.getSignature().getName().equals("createOrder")) {
+            auditService.record("SOD_VIOLATION_ATTEMPT_ADMIN",
+                auth.getName(), "ORDER_CREATION_BLOCKED");
+            throw new SodViolationException(
+                "직무 분리 위반: SYSTEM_ADMIN은 주문 입력 불가");
+        }
+    }
+}
+```
+
+---
+
+### 🟠 MAJOR-03. Brute Force / 비정상 접근 탐지 미흡
+
+**현재 구현**:
+```java
+// IP 기반 Rate Limiter만 존재
+// → 동일 IP에서 다른 계정으로 무차별 로그인 시도 시 감지 안 됨
+// → 로그인 실패 횟수 카운팅 없음
+// → 계정 잠금 정책 없음
+// → 비정상 API 접근 패턴 감지 없음
+```
+
+**권고 구현**:
+
+```java
+// 로그인 실패 카운팅 + 계정 잠금
+@Service
+public class BruteForceProtectionService {
+
+    private static final int MAX_ATTEMPTS = 5;
+    private static final Duration LOCK_DURATION = Duration.ofMinutes(30);
+
+    public void recordFailedLogin(String username, String ip) {
+        String userKey = "login:fail:user:" + username;
+        String ipKey   = "login:fail:ip:" + ip;
+
+        Long userFailCount = redisTemplate.opsForValue().increment(userKey);
+        Long ipFailCount   = redisTemplate.opsForValue().increment(ipKey);
+
+        redisTemplate.expire(userKey, LOCK_DURATION);
+        redisTemplate.expire(ipKey, LOCK_DURATION);
+
+        if (userFailCount >= MAX_ATTEMPTS) {
+            accountService.lock(username, "BRUTE_FORCE_DETECTED");
+            auditService.record("ACCOUNT_LOCKED_BRUTE_FORCE", username, ip);
+            alertService.sendSecurityAlert("계정 잠금: " + username + " from " + ip);
+        }
+
+        if (ipFailCount >= MAX_ATTEMPTS * 3) {
+            firewallService.blockIp(ip, Duration.ofHours(1));
+            auditService.record("IP_BLOCKED", ip, "EXCESSIVE_FAILURES");
+        }
+    }
+}
+
+// 비정상 API 접근 패턴 감지 (Gateway 필터)
+@Component
+public class AnomalyDetectionFilter implements GlobalFilter {
+    @Override
+    public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
+        String uri = exchange.getRequest().getURI().getPath();
+        String ip  = getClientIp(exchange);
+        String user = extractUser(exchange);
+
+        // ❶ 인증 없는 내부 API 직접 접근 시도
+        if (uri.startsWith("/internal/") && !isInternalNetwork(ip)) {
+            auditService.record("UNAUTHORIZED_INTERNAL_ACCESS", user, uri);
+            return Mono.error(new ForbiddenException("내부 API 직접 접근 차단"));
+        }
+
+        // ❷ 비정상적 요청 속도 (초당 100회 이상)
+        String rateKey = "req:rate:" + user;
+        Long reqCount = redisTemplate.opsForValue().increment(rateKey);
+        if (reqCount == 1) redisTemplate.expire(rateKey, Duration.ofSeconds(1));
+        if (reqCount != null && reqCount > 100) {
+            auditService.record("RATE_LIMIT_EXCEEDED", user, uri);
+            // 429 Too Many Requests
+        }
+
+        return chain.filter(exchange);
+    }
+}
+```
+
+---
+
+### 🟡 MINOR-02. JWT 토큰 — 서비스 간 전달 시 재검증 없음
+
+```java
+// JwtAuthenticationGatewayFilterFactory:
+// Gateway에서 JWT 검증 후 X-User-Name, X-User-Role 헤더로 변환
+// → 하위 서비스(order-service 등)는 헤더를 신뢰
+
+// 문제: 내부 서비스가 외부 노출 시 헤더 위조 가능
+// (Gateway를 우회하고 직접 order-service:8081 접근 시 헤더 임의 설정 가능)
+
+// 현재 docker-compose: ports - "8081:8081" → 외부 직접 접근 가능
+order-service:
+    ports:
+      - "8081:8081"   # ❌ Gateway 우회 가능 — 내부 포트만 노출해야 함
+```
+
+**권고**:
+```yaml
+# 내부 서비스는 포트 미노출 (Gateway만 외부 접근)
+order-service:
+    # ports 제거 (내부 네트워크에서만 접근)
+    expose:
+      - "8081"  # 내부 네트워크에만 노출
+    networks:
+      - exchange-net  # 내부 전용 네트워크만
+
+# mTLS(Mutual TLS) 서비스 간 인증 추가 (권고)
+# Istio Service Mesh 또는 Spring Security mTLS 설정
+```
+
+---
+
+## 5. 종합 분석 및 조치 계획
+
+### 규제 위반 영역별 제재 위험
+
+| 위반 영역 | 관련 법규 | 최고 제재 수위 |
+|---|---|---|
+| 감사 로그 미보존 | 자본시장법 제60조 | 과태료 **1억원** |
+| 개인정보 평문 저장 | 개인정보보호법 제29조 | 과징금 **매출의 3%** + 형사처벌 |
+| KYC/AML 미통합 | 특정금융정보법 제5조의2 | **형사처벌** (3년 이하 징역) |
+| 거래 보고 미이행 | 자본시장법 제178조, 제396조 | 과태료 **1억원**, 인가 취소 |
+| 대량 보유 미보고 | 자본시장법 제147조 | 과태료 **2억원** + 임원 처벌 |
+| SoD 미구현 | 금융투자업규정 제4-7조 | 임원 제재, 과태료 |
+| FIU 미보고 | 특정금융정보법 제4조 | **형사처벌** (1년 이하 징역) |
+
+### 즉각 조치 필요 항목 (법적 위반)
+
+```
+① CRITICAL-03: KYC/AML 통합 — 특정금융정보법 형사처벌 리스크
+   → 즉시 금융결제원 KYC API 연동 계획 수립
+
+② CRITICAL-02: 개인정보 암호화 — 개인정보보호법 위반
+   → 즉시 AES-256 암호화 적용 (DB 마이그레이션 포함)
+
+③ CRITICAL-01: Audit Trail DB 저장 — 자본시장법 제60조 위반
+   → 즉시 audit_trail 테이블 생성 + AuditTrailService 구현
+
+④ CRITICAL-04: KOSCOM 거래 보고 — 자본시장법 제178조 위반
+   → regulatory-report-service 신설 계획 수립
+```
+
+### 규제 대응 로드맵
+
+| 단계 | 기간 | 핵심 과제 |
+|---|---|---|
+| **Phase 1** (즉시) | 1~2주 | Audit Trail DB 저장, 개인정보 암호화, RBAC 역할 세분화 |
+| **Phase 2** (단기) | 1~2개월 | KYC/AML 통합, SoD 구현, 브루트포스 방어, 내부 포트 비노출 |
+| **Phase 3** (중기) | 3~6개월 | KOSCOM 거래 보고 API, FIX ExecutionReport, 대량 보유 감지, FIU 보고 |
+| **Phase 4** (장기) | 6개월~ | MiFID II Article 26 준수, ISO 20022 메시지, 5년 데이터 아카이브 |
+
+> **핵심 메시지**: 현재 시스템의 규제 컴플라이언스 상태는 실제 금융 거래소로서 법적 요건을 충족하지 못합니다. 특히 KYC/AML 미통합과 개인정보 평문 저장은 **형사처벌 수준의 위반**으로, 실제 서비스 운영 전 반드시 해결해야 합니다.

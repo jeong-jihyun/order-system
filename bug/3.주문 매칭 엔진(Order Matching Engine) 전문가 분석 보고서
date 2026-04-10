@@ -1,0 +1,870 @@
+# ⚙️ 주문 매칭 엔진(Order Matching Engine) 전문가 분석 보고서
+
+> **분석 관점**: HFT 환경 + KRX 매매체결 원칙  
+> **대상 파일**: `MatchingEngine.java` · `OrderBook.java` · `OrderBookEntry.java` · `StopOrderManager.java` · `ExecutionService.java`  
+> **분석 기준**: KRX 유가증권시장 업무규정 · FIX 5.0 SP2 · FIX HFT 모범 사례
+
+---
+
+## 분석 대상 코드 요약
+
+```
+trading-engine
+├── MatchingEngine.java        — Price-Time Priority 매칭 루프
+├── OrderBook.java             — ConcurrentSkipListMap + TreeSet 호가창
+├── OrderBookEntry.java        — AtomicLong sequence + volatile remainingQty
+├── StopOrderManager.java      — STOP/STOP_LIMIT 대기 관리 (인메모리)
+└── ExecutionService.java      — 주문 접수 → 매칭 → Kafka 발행 오케스트레이터
+```
+
+---
+
+## 1. 매칭 엔진 정확성
+
+---
+
+### 🔴 CRITICAL-01. `OrderBookEntry.fill()` — 비원자적 수량 차감 (Race Condition)
+
+**위험도**: Critical — 동일 주문이 이중 체결되어 수량 초과 체결 발생 가능  
+**위치**: `OrderBookEntry.java` L47-49
+
+```java
+// 현재 코드
+private volatile BigDecimal remainingQuantity;
+
+public void fill(BigDecimal filledQuantity) {
+    this.remainingQuantity = this.remainingQuantity.subtract(filledQuantity);
+    // ① read(remainingQuantity) ← volatile 보장
+    // ② subtract()             ← 새 BigDecimal 객체 생성
+    // ③ write(result)          ← volatile 보장
+    // → ①-③ 사이에 다른 스레드가 개입하면 갱신 손실(Lost Update)!
+}
+```
+
+`volatile`은 **가시성(Visibility)만 보장**하며, read-modify-write의 원자성을 보장하지 않습니다.  
+현재 `MatchingEngine.match()`에 `synchronized(orderBook)`이 있어 **단일 OrderBook 내에서는 안전**하지만, 향후 멀티스레드 확장 시 즉시 버그로 드러납니다. 또한 Cancel 경로(`OrderBook.cancelOrder()`)는 `synchronized` 밖에 있어 **현재도 위험**합니다.
+
+**권고 수정 코드**:
+```java
+// 방법 1: AtomicReference<BigDecimal> 사용 (CAS 기반 원자적 갱신)
+private final AtomicReference<BigDecimal> remainingQuantity;
+
+public BigDecimal fill(BigDecimal filledQuantity) {
+    return remainingQuantity.updateAndGet(current -> {
+        BigDecimal next = current.subtract(filledQuantity);
+        if (next.compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalStateException(
+                "체결 수량 초과: orderId=" + orderId +
+                ", remaining=" + current + ", fill=" + filledQuantity);
+        }
+        return next;
+    });
+}
+
+public boolean isFilled() {
+    return remainingQuantity.get().compareTo(BigDecimal.ZERO) <= 0;
+}
+
+// 방법 2 (고성능): Long 기반 정수 수량 (원자적 연산 보장)
+// quantity를 "주 단위" 정수로 관리 → AtomicLong 사용
+private final AtomicLong remainingQtyUnits; // 1주 = 1_000_000 단위
+
+public long fill(long fillUnits) {
+    long remaining = remainingQtyUnits.addAndGet(-fillUnits);
+    if (remaining < 0) {
+        remainingQtyUnits.addAndGet(fillUnits); // 롤백
+        throw new IllegalStateException("수량 초과 체결");
+    }
+    return remaining;
+}
+```
+
+---
+
+### 🔴 CRITICAL-02. 시간 우선(FIFO) 정밀도 — `LocalDateTime`의 100ns 해상도 한계
+
+**위험도**: Critical — HFT 환경에서 동일 마이크로초 내 주문의 시간 우선순위 오결정  
+**위치**: `OrderBookEntry.java` L43
+
+```java
+// 현재 코드
+.createdAt(LocalDateTime.now())  // 해상도: 운영체제 의존 (보통 100ns ~ 1ms)
+.sequence(SEQUENCE.incrementAndGet()) // ← AtomicLong 단조 증가
+```
+
+현재 `compareTo`는 `sequence`(AtomicLong) 기준이므로 **실제 정렬은 sequence 순서**입니다.  
+그러나 `sequence`는 **JVM 프로세스 내에서만 유일**합니다. 클러스터로 확장하거나 재시작하면 sequence가 리셋되어 이전 주문과 순위가 뒤바뀝니다.
+
+또한 FIX 5.0은 `TransactTime(Tag 60)`을 **UTC 나노초 정밀도**로 요구합니다.
+
+**권고 수정 코드**:
+```java
+// 1. Instant(나노초) 기반 타임스탬프 사용
+private final Instant createdAt; // java.time.Instant (나노초)
+
+// 2. 전역 단조 증가 Sequence (재시작 후에도 연속)
+// → DB Sequence 또는 Snowflake-like ID 사용
+// → 클러스터 환경: Redis INCR "seq:order" 또는 Kafka offset 활용
+
+// 3. 수정된 OrderBookEntry.create()
+public static OrderBookEntry create(...) {
+    return OrderBookEntry.builder()
+        .orderId(orderId)
+        .createdAt(Instant.now())          // 나노초 정밀도
+        .sequenceId(GLOBAL_SEQ.getAndIncrement()) // 재시작에도 연속
+        .build();
+}
+
+// 4. compareTo — Sequence 기반 (현재 구현은 맞음, 단 전역 유일성 필요)
+@Override
+public int compareTo(OrderBookEntry other) {
+    return Long.compare(this.sequenceId, other.sequenceId);
+}
+```
+
+---
+
+### 🟠 MAJOR-01. 시장가 주문(Market Order) 유동성 부족 시 처리 미정의
+
+**위험도**: Major — 유동성 없을 때 시장가 주문이 무기한 호가창 대기  
+**위치**: `MatchingEngine.java` L44-46
+
+```java
+// 현재 코드
+// 미체결 잔량이 있으면 호가창에 등록 (지정가 주문만)
+if (!newOrder.isFilled() && newOrder.getPrice() != null) {
+    orderBook.addOrder(newOrder);
+}
+// Market Order(price=null): 미체결 잔량 → 아무 처리 없음 (소멸)
+```
+
+KRX 규정 및 FIX 표준:
+- **시장가 주문**은 상대방 호가가 없으면 → **즉시 취소(Reject)** 또는 남은 수량 취소
+- **IOC(Immediate-or-Cancel)**: 즉시 체결 가능 수량만 체결, 나머지 즉시 취소
+- **FOK(Fill-or-Kill)**: 전량 체결 불가 시 전체 취소
+
+```java
+// 현재: Market Order 미체결 잔량이 silent하게 소멸됨
+// → 고객은 주문 넣었는데 얼마나 체결됐는지 알 수 없음
+// → FIX ExecType=Expired 또는 Cancelled 이벤트 미발행
+```
+
+**권고 수정 코드**:
+```java
+public List<ExecutionResult> match(OrderBook orderBook, OrderBookEntry newOrder) {
+    List<ExecutionResult> executions = new ArrayList<>();
+
+    synchronized (orderBook) {
+        if (newOrder.getSide() == OrderSide.BUY) {
+            matchBuyOrder(orderBook, newOrder, executions);
+        } else {
+            matchSellOrder(orderBook, newOrder, executions);
+        }
+
+        if (!newOrder.isFilled()) {
+            if (newOrder.getPrice() == null) {
+                // ① Market Order 미체결 잔량 처리
+                handleMarketOrderRemainder(newOrder, executions);
+            } else if (newOrder.getTimeInForce() == TimeInForce.IOC) {
+                // ② IOC: 즉시 취소
+                executions.add(buildCancelExecution(newOrder, CancelReason.IOC_REMAINDER));
+            } else if (newOrder.getTimeInForce() == TimeInForce.FOK) {
+                // ③ FOK: 이미 매칭된 체결도 롤백 (또는 미체결이면 전체 취소)
+                executions.clear();
+                executions.add(buildCancelExecution(newOrder, CancelReason.FOK_FAILED));
+            } else {
+                // ④ Limit GTC/DAY: 호가창 등록
+                orderBook.addOrder(newOrder);
+            }
+        }
+    }
+    return executions;
+}
+
+private void handleMarketOrderRemainder(OrderBookEntry order,
+                                        List<ExecutionResult> executions) {
+    // 시장가 미체결 잔량 → Cancelled 이벤트 발행 (FIX ExecType=4)
+    executions.add(ExecutionResult.builder()
+        .orderId(order.getOrderId())
+        .execType(ExecType.CANCELLED)
+        .leavesQty(order.getRemainingQuantity())
+        .cancelReason("MARKET_ORDER_NO_LIQUIDITY")
+        .build());
+    log.warn("[MatchingEngine] 시장가 주문 미체결 잔량 취소 — orderId={}, leavesQty={}",
+        order.getOrderId(), order.getRemainingQuantity());
+}
+```
+
+---
+
+### 🟠 MAJOR-02. 체결가 결정 원칙 — `executionPrice`가 항상 ASK/BID 가격으로 고정
+
+**위험도**: Major — KRX 체결가 원칙과 불일치 가능  
+**위치**: `MatchingEngine.java` L79, L126
+
+```java
+// BUY 주문 체결: executionPrice = askPrice (매도 호가)
+executions.add(ExecutionResult.builder()
+    .executionPrice(askPrice)   // ← 항상 기존 호가 기준
+    ...
+
+// SELL 주문 체결: executionPrice = bidPrice (매수 호가)
+executions.add(ExecutionResult.builder()
+    .executionPrice(bidPrice)   // ← 항상 기존 호가 기준
+    ...
+```
+
+**현재 구현의 체결가 결정 방식**: Passive(호가창의 기존 주문) 가격으로 체결 → **원칙적으로 맞습니다.**
+
+그러나 **동시호가(Call Auction)** 세션에서는 **단일 체결가(Uniform Price)** 방식을 사용해야 하며, 현재 세션 구분이 없어 동시호가가 연속 매매와 동일하게 처리됩니다.
+
+```
+연속 매매  : Price-Time Priority, Passive 가격 적용 ✅ (현재 구현)
+동시호가   : 수요-공급 교차 단일가 (KRX 개장 08:00~09:00) ❌ 미구현
+시간외 종가: 전일 종가 고정 체결 ❌ 미구현
+```
+
+---
+
+### 🟡 MINOR-01. `LocalDateTime.now()` — 타임존 미지정
+
+**위험도**: Minor — 서버 설치 환경에 따라 UTC/KST 혼용 위험  
+**위치**: `MatchingEngine.java` L81, L128 / `OrderBookEntry.java` L42
+
+```java
+.executedAt(LocalDateTime.now())  // 타임존 없음 → 서버 로케일 의존
+```
+
+**권고 수정**:
+```java
+.executedAt(Instant.now())         // UTC 절대 시각 (타임존 독립)
+// 또는
+.executedAt(ZonedDateTime.now(ZoneId.of("Asia/Seoul")))  // KST 명시
+```
+
+---
+
+## 2. 주문 유형별 처리 검증
+
+---
+
+### 🔴 CRITICAL-03. IOC / FOK / GTC 주문 유형 완전 미구현
+
+**위험도**: Critical — KRX 상장 종목 거래 기본 요건 미충족  
+**위치**: `OrderBookEntry.java`, `OrderKafkaConsumer.java`
+
+```java
+// 현재 구현된 주문 유형:
+// LIMIT / MARKET / STOP_LOSS / STOP_LIMIT
+// → TimeInForce 개념 자체가 없음
+
+// OrderBookEntry.java — TimeInForce 필드 없음
+@Builder
+public class OrderBookEntry {
+    private final BigDecimal price;  // null = MARKET
+    // TimeInForce 없음!
+    // → IOC: 즉시 체결, 나머지 취소
+    // → FOK: 전량 체결 안 되면 전부 취소
+    // → GTC: 취소 전까지 유효 (현재 모든 주문이 이 방식)
+    // → GTD: 특정 일자까지 유효
+    // → DAY: 당일만 유효 (장 마감 시 자동 취소)
+}
+```
+
+KRX 허용 주문 유형 (유가증권시장 업무규정 제75조):
+
+| 주문 유형 | 한국 명칭 | 현재 구현 |
+|---|---|---|
+| DAY (당일 유효) | 당일 지정가 | ❌ 없음 |
+| GTC | 조건부 지정가 | ❌ 없음 |
+| IOC | 즉시 체결 또는 취소 | ❌ 없음 |
+| FOK | 전량 체결 또는 전량 취소 | ❌ 없음 |
+| GTD | 특정 일자까지 유효 | ❌ 없음 |
+
+**권고 수정 코드**:
+```java
+// 1. TimeInForce enum 추가
+public enum TimeInForce {
+    DAY,    // 0: 당일 (장 마감 시 자동 취소) — KRX 기본값
+    GTC,    // 1: 취소 전까지 유효
+    IOC,    // 3: 즉시 체결 또는 취소
+    FOK,    // 4: 전량 체결 또는 전량 취소
+    GTD     // 6: 특정 일자 만료
+}
+
+// 2. OrderBookEntry에 추가
+@Builder
+public class OrderBookEntry {
+    private final TimeInForce timeInForce; // 주문 유효 기간
+    private final LocalDate   expireDate;  // GTD 만료일
+    ...
+}
+
+// 3. DAY 주문 장 마감 시 일괄 취소 (스케줄러)
+@Scheduled(cron = "0 30 15 * * MON-FRI")  // 15:30 장 마감
+public void cancelDayOrders() {
+    for (OrderBook book : registry.allBooks()) {
+        book.cancelAllByTimeInForce(TimeInForce.DAY);
+    }
+    log.info("[장 마감] DAY 주문 일괄 취소 완료");
+}
+```
+
+---
+
+### 🔴 CRITICAL-04. 가격 제한폭(±30%) 검증 완전 부재
+
+**위험도**: Critical — 자본시장법 제88조, KRX 업무규정 제90조 위반  
+**위치**: `OrderCommandService.java`, `MatchingEngine.java`
+
+```java
+// 현재: 가격 범위 검증 없음
+// PriceValidator.java — 최대 10억 상한만 확인
+if (request.getTotalPrice().compareTo(MAX_PRICE) > 0) {
+    throw new IllegalArgumentException("금액은 10억 이하여야 합니다.");
+}
+// KRX: 전일 종가 대비 ±30% 초과 주문 전면 거부 → 전혀 없음!
+```
+
+KRX 가격 제한폭 규정:
+- **코스피**: 전일 종가 대비 ±30%
+- **코스닥**: 전일 종가 대비 ±30%  
+- **신규 상장 첫날 (IPO)**: 공모가 60~400% 범위
+
+**권고 수정 코드**:
+```java
+// Pre-Trade Risk Check 서비스 (별도 컴포넌트)
+@Component
+public class PriceLimitChecker {
+
+    private final ReferenceDataService refData; // 전일 종가 조회
+
+    public void validate(String symbol, BigDecimal orderPrice) {
+        BigDecimal basePrice = refData.getPreviousClose(symbol);
+        if (basePrice == null) {
+            // 신규 상장: 공모가 기준 적용
+            basePrice = refData.getIpoPrice(symbol);
+        }
+
+        BigDecimal upperLimit = basePrice.multiply(BigDecimal.valueOf(1.30))
+                .setScale(0, RoundingMode.DOWN); // 원 단위 절사
+        BigDecimal lowerLimit = basePrice.multiply(BigDecimal.valueOf(0.70))
+                .setScale(0, RoundingMode.UP);   // 원 단위 절상
+
+        if (orderPrice.compareTo(upperLimit) > 0) {
+            throw new PriceLimitExceededException(
+                String.format("상한가 초과: 주문가=%s, 상한가=%s", orderPrice, upperLimit));
+        }
+        if (orderPrice.compareTo(lowerLimit) < 0) {
+            throw new PriceLimitExceededException(
+                String.format("하한가 미달: 주문가=%s, 하한가=%s", orderPrice, lowerLimit));
+        }
+    }
+}
+
+// 호가 단위(Tick Size) 검증도 추가 필요
+// KRX 호가 단위:
+// 1,000원 미만: 1원 / 1,000~5,000: 5원 / 5,000~10,000: 10원
+// 10,000~50,000: 50원 / 50,000~100,000: 100원 / 100,000~500,000: 500원
+// 500,000 이상: 1,000원
+public BigDecimal validateTickSize(String symbol, BigDecimal price) {
+    int tickSize = getTickSize(price);
+    BigDecimal remainder = price.remainder(BigDecimal.valueOf(tickSize));
+    if (remainder.compareTo(BigDecimal.ZERO) != 0) {
+        throw new InvalidTickSizeException(
+            String.format("호가 단위 오류: price=%s, tickSize=%d", price, tickSize));
+    }
+    return price;
+}
+```
+
+---
+
+### 🟠 MAJOR-03. 정규장 / 시간외 / 동시호가 세션 구분 없음
+
+**위험도**: Major — KRX 세션별 허용 주문 유형 규정 위반  
+**위치**: `ExecutionService.java`, `OrderKafkaConsumer.java`
+
+KRX 세션 구분 및 허용 주문:
+
+| 세션 | 시간 | 허용 주문 유형 |
+|---|---|---|
+| 동시호가 (개장) | 08:00~09:00 | 지정가, 시장가 |
+| 정규 연속 매매 | 09:00~15:20 | 지정가, 시장가, 조건부지정가, 최유리, IOC, FOK |
+| 동시호가 (장 마감) | 15:20~15:30 | 지정가, 시장가 |
+| 시간외 종가 | 15:40~16:00 | 종가 주문만 (전일 종가 고정) |
+| 시간외 단일가 | 16:00~18:00 | 지정가 |
+
+**권고 구조**:
+```java
+public enum TradingSession {
+    PRE_OPEN,            // 08:00~09:00  동시호가
+    CONTINUOUS,          // 09:00~15:20  연속 매매
+    CLOSING_AUCTION,     // 15:20~15:30  장 마감 동시호가
+    AFTER_HOURS_CLOSE,   // 15:40~16:00  시간외 종가
+    AFTER_HOURS_SINGLE   // 16:00~18:00  시간외 단일가
+}
+
+@Component
+public class SessionManager {
+    public TradingSession currentSession() {
+        LocalTime now = LocalTime.now(ZoneId.of("Asia/Seoul"));
+        if (now.isBefore(LocalTime.of(9, 0)))   return PRE_OPEN;
+        if (now.isBefore(LocalTime.of(15, 20))) return CONTINUOUS;
+        if (now.isBefore(LocalTime.of(15, 30))) return CLOSING_AUCTION;
+        // ...
+    }
+
+    public void validateOrderForSession(OrderBookEntry order, TradingSession session) {
+        if (session == PRE_OPEN && order.getTimeInForce() == TimeInForce.IOC) {
+            throw new InvalidOrderException("동시호가 세션에서 IOC 주문 불가");
+        }
+        // ...
+    }
+}
+```
+
+---
+
+## 3. 호가창(Order Book) 정합성
+
+---
+
+### 🔴 CRITICAL-05. `OrderBook.addOrder()` — `computeIfAbsent` + `TreeSet.add()` 비원자적
+
+**위험도**: Critical — 동시 접근 시 TreeSet 내부 상태 손상  
+**위치**: `OrderBook.java` L41-48
+
+```java
+// 현재 코드
+public void addOrder(OrderBookEntry entry) {
+    ConcurrentSkipListMap<BigDecimal, TreeSet<OrderBookEntry>> book = ...;
+    book.computeIfAbsent(entry.getPrice(), k -> new TreeSet<>())
+        .add(entry);  // ← computeIfAbsent는 원자적이나,
+                      //   반환된 TreeSet.add()는 비동기 접근 시 비안전!
+}
+
+// TreeSet은 Thread-Safe하지 않음
+// 두 스레드가 동시에 같은 price level에 add() 하면
+// → TreeSet 내부 레드블랙 트리 구조 손상 → NPE 또는 무한루프
+```
+
+**권고 수정 코드**:
+```java
+// 방법 1: ConcurrentSkipListMap<BigDecimal, ConcurrentSkipListSet<OrderBookEntry>>
+// TreeSet → ConcurrentSkipListSet 교체 (Thread-Safe)
+private final ConcurrentSkipListMap<BigDecimal, ConcurrentSkipListSet<OrderBookEntry>> bids =
+        new ConcurrentSkipListMap<>(Comparator.reverseOrder());
+
+public void addOrder(OrderBookEntry entry) {
+    ConcurrentSkipListMap<BigDecimal, ConcurrentSkipListSet<OrderBookEntry>> book =
+            entry.getSide() == OrderSide.BUY ? bids : asks;
+    book.computeIfAbsent(entry.getPrice(),
+            k -> new ConcurrentSkipListSet<>())  // Thread-Safe Set
+        .add(entry);
+}
+
+// 방법 2 (고성능, LMAX Disruptor 패턴): 단일 스레드 매칭 엔진
+// 모든 OrderBook 접근을 단일 스레드로 직렬화
+// → Lock 불필요, 최고 성능
+// ArrayBlockingQueue<OrderCommand> commandQueue → SingleThread Consumer
+```
+
+---
+
+### 🟠 MAJOR-04. `OrderBook.cancelOrder()` — 매칭 Lock 외부에서 실행
+
+**위험도**: Major — 매칭 중 동시 취소 시 데이터 불일치  
+**위치**: `OrderBook.java` L53-60
+
+```java
+// 현재: cancelOrder()는 synchronized 없음
+public boolean cancelOrder(Long orderId, OrderSide side, BigDecimal price) {
+    TreeSet<OrderBookEntry> level = book.get(price);
+    boolean removed = level.removeIf(e -> e.getOrderId().equals(orderId));
+    // ↑ MatchingEngine.match()의 synchronized(orderBook) 밖에서 실행 가능
+    // → 매칭 중에 취소가 동시 실행 = 같은 수량이 양쪽에서 차감됨
+}
+```
+
+**권고 수정 코드**:
+```java
+// OrderBook 내부에서 ReentrantReadWriteLock으로 통일
+public class OrderBook {
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private final Lock readLock  = lock.readLock();
+    private final Lock writeLock = lock.writeLock();
+
+    public void addOrder(OrderBookEntry entry) {
+        writeLock.lock();
+        try { /* ... */ }
+        finally { writeLock.unlock(); }
+    }
+
+    public boolean cancelOrder(Long orderId, OrderSide side, BigDecimal price) {
+        writeLock.lock();  // 매칭과 동일한 lock 사용
+        try { /* ... */ }
+        finally { writeLock.unlock(); }
+    }
+
+    public OrderBookSnapshot getSnapshot(int depth) {
+        readLock.lock();   // 읽기는 병렬 허용
+        try { /* ... */ }
+        finally { readLock.unlock(); }
+    }
+}
+
+// MatchingEngine.match()도 synchronized 제거 → OrderBook 내부 lock으로 통일
+public List<ExecutionResult> match(OrderBook orderBook, OrderBookEntry newOrder) {
+    // synchronized(orderBook) 제거 → OrderBook이 자체 lock 관리
+    return orderBook.matchOrder(newOrder); // OrderBook이 직접 매칭 수행
+}
+```
+
+---
+
+### 🟠 MAJOR-05. Order Book Snapshot — 매칭 Lock 외부에서 읽기 (Torn Read)
+
+**위험도**: Major — 일관성 없는 스냅샷 제공  
+**위치**: `OrderBookSnapshotService.java` L37 / `OrderBookController.java` L26
+
+```java
+// OrderBookSnapshotService.saveSnapshot()
+// → 매칭 synchronized 밖에서 orderBook.getSnapshot() 호출
+// → 매칭 중간 상태의 호가창 스냅샷이 Redis에 저장될 수 있음
+
+// OrderBookController.getSnapshot()
+// → REST API에서 직접 orderBook.getSnapshot() 호출
+// → 매칭 중 부분 갱신된 상태 노출
+```
+
+**권고 수정 코드**:
+```java
+// Incremental Update 방식으로 전환 (Snapshot + Delta)
+// 1. 체결 후 변경된 가격 레벨만 이벤트 발행
+public class OrderBookDelta {
+    private final String symbol;
+    private final long   sequenceNumber;  // 단조 증가 (클라이언트 순서 보장)
+    private final List<PriceLevelChange> bidsChanged;
+    private final List<PriceLevelChange> asksChanged;
+    private final Instant timestamp;
+}
+
+// 2. MatchingEngine 완료 후 delta 계산 및 발행
+public List<ExecutionResult> match(OrderBook orderBook, OrderBookEntry newOrder) {
+    OrderBookState before = orderBook.snapshot(); // 매칭 전 상태
+    List<ExecutionResult> executions = doMatch(orderBook, newOrder);
+    OrderBookState after  = orderBook.snapshot(); // 매칭 후 상태
+    OrderBookDelta delta  = computeDelta(before, after);
+    deltaPublisher.publish(delta);                // WebSocket으로 실시간 발행
+    return executions;
+}
+```
+
+---
+
+### 🟡 MINOR-02. 호가창 스냅샷의 `depth` 기본값 — 설정 파일 관리 필요
+
+**위험도**: Minor  
+**위치**: `OrderBookSnapshotService.java` L33 / `OrderBookController.java` L24
+
+```java
+@Value("${trading.orderbook.depth:10}")  // 기본 10단계
+private int depth;
+
+// REST API 파라미터도 기본 10
+@RequestParam(defaultValue = "10") int depth
+```
+
+KRX는 L2 호가창 10단계를 제공하나, 브로커사 전용 L3(전체 호가) 제공 채널이 별도로 필요합니다. 현재는 단일 depth 설정으로 두 요건을 충족할 수 없습니다.
+
+---
+
+## 4. 에지 케이스 처리
+
+---
+
+### 🔴 CRITICAL-06. 자전거래(Cross Trade / Wash Trade) 감지 로직 완전 부재
+
+**위험도**: Critical — 자본시장법 제176조(시세조종 행위) 위반  
+**위치**: `MatchingEngine.java` 전체
+
+```java
+// 현재: 매수자와 매도자가 동일 회원사인지 전혀 확인하지 않음
+executions.add(ExecutionResult.builder()
+    .buyerUsername(buyOrder.getCustomerName())
+    .sellerUsername(sellOrder.getCustomerName())
+    // ↑ 두 값이 동일해도 체결 진행 → 불법 자전거래!
+    .build());
+```
+
+**자전거래의 위험**:
+- 동일인 또는 동일 회원사의 매수-매도 자전거래 → 허수 거래량 부풀리기
+- KRX는 자전거래를 **실시간 감지하여 즉시 거부**
+- 미국 SEC Rule 10b-5, 한국 자본시장법 제176조 위반
+
+**권고 수정 코드**:
+```java
+// MatchingEngine — 자전거래 감지
+private boolean isCrossTrade(OrderBookEntry buyOrder, OrderBookEntry sellOrder) {
+    // 1. 동일 사용자 자전거래
+    if (buyOrder.getCustomerName().equals(sellOrder.getCustomerName())) {
+        return true;
+    }
+    // 2. 동일 계좌 자전거래 (accountId 필드 필요)
+    if (buyOrder.getAccountId() != null &&
+        buyOrder.getAccountId().equals(sellOrder.getAccountId())) {
+        return true;
+    }
+    // 3. 동일 회원사 자전거래 (memberId 필드 필요)
+    if (buyOrder.getMemberId() != null &&
+        buyOrder.getMemberId().equals(sellOrder.getMemberId())) {
+        return true; // 일부 거래소는 허용, KRX는 원칙적 금지
+    }
+    return false;
+}
+
+// 매칭 루프에 적용
+OrderBookEntry sellOrder = it.next();
+if (isCrossTrade(buyOrder, sellOrder)) {
+    log.warn("[자전거래 감지] buyId={}, sellId={}, user={}",
+        buyOrder.getOrderId(), sellOrder.getOrderId(),
+        buyOrder.getCustomerName());
+    auditService.recordCrossTradeAttempt(buyOrder, sellOrder); // 감리 기록
+    it.remove(); // 매도 주문을 건너뜀 (또는 buyOrder를 취소)
+    continue;
+}
+```
+
+---
+
+### 🔴 CRITICAL-07. In-flight 주문 복구 처리 없음 (매칭 중 장애)
+
+**위험도**: Critical — 매칭 중 JVM 크래시 시 체결 결과 유실  
+**위치**: `ExecutionService.java` L44-58
+
+```java
+// 현재 처리 순서:
+List<ExecutionResult> executions = matchingEngine.match(orderBook, entry); // ①매칭
+for (ExecutionResult exec : executions) {
+    executionProducer.publishExecution(exec); // ②Kafka 발행
+}
+snapshotService.saveSnapshot(orderBook);       // ③Redis 저장
+stopOrderManager.checkTriggers(...);           // ④STOP 처리
+
+// 장애 시나리오:
+// ①후 ②전 크래시 → OrderBook에는 체결 반영됨, Kafka에는 없음 → 불일치
+// ②후 ③전 크래시 → Kafka에는 체결됨, Redis에는 구버전 스냅샷 → 불일치
+// ③후 ④전 크래시 → STOP 주문 트리거 누락
+```
+
+**권고 수정 코드**:
+```java
+// 방법 1: Write-Ahead Log (WAL) 패턴
+// 체결 결과를 먼저 внутри DB에 기록 → 그 후 OrderBook 반영 → Kafka 발행
+@Transactional
+public void processOrder(...) {
+    // 1. 매칭 (메모리 내)
+    List<ExecutionResult> executions = matchingEngine.match(orderBook, entry);
+
+    // 2. WAL: 체결 결과 DB 저장 (장애 후 재처리 기준점)
+    executionRepository.saveAll(executions); // Trade 테이블에 저장
+
+    // 3. Kafka 발행 (DB 커밋 후)
+    for (ExecutionResult exec : executions) {
+        executionProducer.publishExecution(exec);
+    }
+    // 4. DB 커밋 = 체결 확정
+}
+
+// 방법 2: 재시작 시 WAL에서 미발행 체결 이벤트 재처리
+@PostConstruct
+public void recoverInFlightExecutions() {
+    List<ExecutionResult> unpublished =
+        executionRepository.findUnpublished(); // Kafka 미발행 체결
+    for (ExecutionResult exec : unpublished) {
+        executionProducer.publishExecution(exec); // 재발행
+    }
+}
+```
+
+---
+
+### 🟠 MAJOR-06. `BigDecimal` 연산 — `scale` 미관리로 인한 정밀도 불일치
+
+**위험도**: Major — 금액 계산 오류 (0.10원 단위 오차)  
+**위치**: `OrderBookEntry.java` L48 / `FeeCalculator.java` L34-35
+
+```java
+// OrderBookEntry.fill()
+this.remainingQuantity = this.remainingQuantity.subtract(filledQuantity);
+// → scale이 다른 두 BigDecimal 연산 시 결과 scale이 불규칙
+// 예: 1000.00 - 100.0 = 900.00 (OK)
+//     1000 - 100.0  = 900.0  (scale 차이 → 비교 연산 오류 가능)
+
+// FeeCalculator
+BigDecimal commission = grossAmount.multiply(commissionRate)
+        .setScale(2, RoundingMode.HALF_UP); // ← 2자리(원)로 강제
+// 수수료: 1,234,567원 × 0.00015 = 185.185...원 → 185.19원
+// 실제 KRX 수수료는 원 단위 절사가 규정 → HALF_UP이 아닌 FLOOR 사용해야 함
+```
+
+**권고 수정 코드**:
+```java
+// 1. 수량: 항상 scale=8로 정규화 (소수점 이하 8자리)
+public static final int QTY_SCALE  = 8;
+public static final int PRICE_SCALE = 8;
+public static final int MONEY_SCALE = 2; // 원 단위
+
+// 2. fill() 수량 차감 시 scale 통일
+public void fill(BigDecimal filledQuantity) {
+    BigDecimal normalized = filledQuantity.setScale(QTY_SCALE, RoundingMode.UNNECESSARY);
+    remainingQuantity.updateAndGet(current ->
+        current.subtract(normalized).setScale(QTY_SCALE, RoundingMode.UNNECESSARY)
+    );
+}
+
+// 3. 수수료: KRX 규정대로 원 단위 절사 (FLOOR)
+BigDecimal commission = grossAmount
+        .multiply(commissionRate)
+        .setScale(MONEY_SCALE, RoundingMode.FLOOR); // ← 절사
+
+// 4. 거래세: 원 단위 절사 (자본시장법 시행령)
+BigDecimal tax = grossAmount
+        .multiply(taxRate)
+        .setScale(MONEY_SCALE, RoundingMode.FLOOR);
+```
+
+---
+
+### 🟠 MAJOR-07. `StopOrderManager.checkTriggers()` — 트리거 중 재진입 위험
+
+**위험도**: Major — STOP 주문 트리거가 새로운 STOP 주문을 재귀 트리거  
+**위치**: `StopOrderManager.java` L65-78
+
+```java
+// 현재 흐름:
+// executionService.processOrder() 호출 → 새 체결 발생
+// → stopOrderManager.checkTriggers() 재호출 (ExecutionService.java L57)
+// → 또 다른 STOP 주문 트리거 → 재귀 호출!
+
+for (StopOrderEntry entry : triggered) {
+    stops.remove(entry);
+    executionService.processOrder(          // ← 이 안에서
+        entry.orderId, entry.symbol, ...);  //   checkTriggers()가 다시 호출됨
+}
+// → Stack Overflow 또는 무한 체결 연쇄 가능
+```
+
+**권고 수정 코드**:
+```java
+// 트리거된 STOP 주문을 즉시 처리하지 않고 큐에 적재 → 현재 체결 완료 후 처리
+@Component
+public class StopOrderManager {
+    private final Queue<StopOrderEntry> triggerQueue = new ConcurrentLinkedQueue<>();
+
+    public void checkTriggers(String symbol, BigDecimal lastPrice) {
+        CopyOnWriteArrayList<StopOrderEntry> stops = pendingStops.get(symbol);
+        if (stops == null) return;
+
+        stops.removeIf(entry -> {
+            if (shouldTrigger(entry, lastPrice)) {
+                triggerQueue.offer(entry); // 큐에 적재 (즉시 실행 X)
+                return true;
+            }
+            return false;
+        });
+    }
+
+    // 현재 매칭 사이클 완료 후 트리거 처리
+    @Scheduled(fixedDelay = 10) // 10ms 간격 폴링
+    public void processTriggerQueue() {
+        StopOrderEntry entry;
+        while ((entry = triggerQueue.poll()) != null) {
+            BigDecimal orderPrice = "STOP_LIMIT".equals(entry.orderType())
+                    ? entry.limitPrice() : null; // null = MARKET
+            executionService.processOrder(
+                entry.orderId(), entry.symbol(), entry.side(),
+                orderPrice, entry.quantity(), entry.customerName());
+        }
+    }
+}
+```
+
+---
+
+### 🟡 MINOR-03. `ExecutionResult.executedAt` — `LocalDateTime` (타임존 없음)
+
+**위험도**: Minor  
+**위치**: `ExecutionResult.java` L23
+
+```java
+private final LocalDateTime executedAt;
+// → Kafka 직렬화 후 "2026-04-10T09:00:00" 형태 → 타임존 불분명
+// → 해외 연계 시 UTC/KST 혼용 위험
+```
+
+**권고**: `Instant executedAt` 또는 ISO-8601 UTC `"2026-04-10T00:00:00Z"` 형식 사용
+
+---
+
+### 🟡 MINOR-04. `ExecutionEventProducer` — Kafka 키가 `buyOrderId`만 사용
+
+**위험도**: Minor — Kafka 파티션 편중 발생 가능  
+**위치**: `ExecutionEventProducer.java` L44-45
+
+```java
+kafkaTemplate.send(executionTopic,
+    result.getBuyOrderId().toString(), json); // ← 키 = buyOrderId
+// → 특정 종목의 buyOrderId가 특정 파티션에 집중 → 핫 파티션
+```
+
+**권고**: `symbol`을 파티션 키로 사용 → 종목별 파티션에 균등 분배, 순서 보장
+
+```java
+kafkaTemplate.send(executionTopic,
+    result.getSymbol(), json); // ← 키 = symbol (종목별 파티션)
+```
+
+---
+
+## 5. 종합 평가 및 우선순위
+
+### 결함 분포
+
+| 등급 | 건수 | 핵심 내용 |
+|---|---|---|
+| 🔴 Critical | 7건 | fill() 비원자성, IOC/FOK 미구현, 가격제한폭 부재, addOrder() 비원자성, 자전거래 미감지, 장애복구 없음, STOP 재귀 불안전 |
+| 🟠 Major | 6건 | 시장가 미체결 미처리, 체결가 세션구분, cancelOrder() Lock 외부, 스냅샷 torn read, BigDecimal scale, STOP 재귀 |
+| 🟡 Minor | 4건 | LocalDateTime 타임존, 스냅샷 depth 설정, executedAt, Kafka 파티션 키 |
+
+### 즉시 수정 필요 Top 3
+
+```
+① CRITICAL-06: 자전거래 감지 추가 (1일 작업, 법적 위험)
+② CRITICAL-04: 가격 제한폭 ±30% 검증 추가 (2일 작업, 규정 위반)
+③ CRITICAL-03: IOC/FOK TimeInForce 구현 (1주 작업, 기본 기능)
+```
+
+### 성능 목표 달성을 위한 매칭 엔진 재설계 로드맵
+
+```
+현재: synchronized(orderBook) → 종목당 단일 스레드
+목표: Latency < 1ms, TPS > 100,000
+
+Phase 1: Lock 구조 개선
+├── TreeSet → ConcurrentSkipListSet
+├── OrderBook 내부 ReadWriteLock 통일
+└── cancelOrder() 동기화
+
+Phase 2: LMAX Disruptor 도입
+├── 단일 스레드 매칭 (Lock-Free)
+├── Ring Buffer 기반 명령 큐
+└── 멀티 생산자(Kafka Consumer) → 단일 소비자(Matcher)
+
+Phase 3: 메모리 최적화
+├── BigDecimal → long (fixed-point arithmetic)
+│   예: 가격 12,500원 → 1_250_000_000 (소수점 5자리 고정)
+├── 객체 풀링 (OrderBookEntry Pool)
+└── GC 최소화 (G1GC → ZGC → Shenandoah)
+```
