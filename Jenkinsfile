@@ -226,6 +226,8 @@ pipeline {
         stage('Health Check') {
             steps {
                 script {
+                    // 서비스 초기 기동 시간(특히 Kafka 연결) 여유를 먼저 확보
+                    sleep(time: 30, unit: 'SECONDS')
                     def portMap = [
                         'api-gateway':         [host: 'api-gateway',        port: 8080],
                         'order-service':       [host: 'order-service',      port: 8081],
@@ -242,9 +244,9 @@ pipeline {
                             def svcHost = info.host
                             def svcPort = info.port
                             checks[svc] = {
-                                retry(12) {
+                                retry(30) {
                                     sleep(time: 10, unit: 'SECONDS')
-                                    sh "curl -sf http://exchange-${svcHost}:${svcPort}/actuator/health | grep -q 'UP' || exit 1"
+                                    sh "curl --connect-timeout 3 --max-time 5 -sf http://exchange-${svcHost}:${svcPort}/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
                                 }
                                 echo "${svc} 헬스체크 성공"
                             }
