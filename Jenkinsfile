@@ -17,7 +17,6 @@ pipeline {
         COMPOSE_FILE    = "docker-compose.yml"
         COMPOSE_P       = "exchange"
         SERVICES        = "api-gateway order-service account-service market-data-service trading-engine settlement-service"
-        DOCKER_BUILDKIT = "1"
     }
 
     options {
@@ -36,7 +35,7 @@ pipeline {
                         script: 'git rev-parse --short HEAD',
                         returnStdout: true
                     ).trim()
-                    env.IMAGE_TAG = "${env.BRANCH_NAME}-${env.GIT_COMMIT_SHORT}"
+                    env.IMAGE_TAG = "${env.BRANCH_NAME ?: 'main'}-${env.GIT_COMMIT_SHORT}"
                 }
                 echo "üũ�ƿ� �Ϸ� ? branch=${env.BRANCH_NAME}, commit=${env.GIT_COMMIT_SHORT}"
             }
