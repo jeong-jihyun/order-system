@@ -238,21 +238,24 @@ pipeline {
             steps {
                 script {
                     def checks = [:]
+                    // key = 실제 컨테이너명 접미사(exchange-{key}), value = 포트
                     def services = [
-                        'api-gateway':         8080,
-                        'order-service':       8081,
-                        'account-service':     8082,
-                        'market-data-service': 8083,
-                        'trading-engine':      8084,
-                        'settlement-service':  8085
+                        'api-gateway':     8080,
+                        'order-service':   8081,
+                        'account-service': 8082,
+                        'market-data':     8083,
+                        'trading-engine':  8084,
+                        'settlement-service': 8085
                     ]
                     services.each { name, port ->
-                        checks[name] = {
+                        def svcName = name
+                        def svcPort = port
+                        checks[svcName] = {
                             retry(6) {
                                 sleep(time: 10, unit: 'SECONDS')
-                                sh "curl -sf http://localhost:${port}/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
+                                sh "curl -sf http://exchange-${svcName}:${svcPort}/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
                             }
-                            echo "${name} �ｺüũ ���"
+                            echo "${svcName} 헬스체크 통과"
                         }
                     }
                     parallel checks
