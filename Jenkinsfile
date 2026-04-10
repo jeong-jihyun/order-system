@@ -153,7 +153,7 @@ pipeline {
                         def s = svc
                         builds["build: ${s}"] = {
                             sh """
-                                DOCKER_BUILDKIT=1 docker build \
+                                docker build \
                                   --build-arg SERVICE_DIR=${s} \
                                   --build-arg JAR_NAME=${s} \
                                   --cache-from ${REGISTRY}/${PROJECT}/${s}:latest \
