@@ -192,7 +192,8 @@ pipeline {
                         2>/dev/null || true
                 """
                 // Kafka/Zookeeper 볼륨 제거 — ClusterID 불일치 방지 (InconsistentClusterIdException)
-                sh "docker volume rm exchange_kafka-data exchange_zookeeper-data 2>/dev/null || true"
+                // zookeeper-data/log도 함께 삭제해야 kafka-data와 ClusterID가 일치
+                sh "docker volume rm exchange_kafka-data exchange_zookeeper-data exchange_zookeeper-log 2>/dev/null; true"
                 sh """
                     docker compose -p ${COMPOSE_P} up -d \
                         mysql redis zookeeper kafka kafdrop

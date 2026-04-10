@@ -68,6 +68,9 @@ services:
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-log:/var/lib/zookeeper/log
     networks:
       - exchange-net
     healthcheck:
@@ -332,6 +335,8 @@ volumes:
   mysql-data:
   redis-data:
   kafka-data:
+  zookeeper-data:
+  zookeeper-log:
   jenkins-data:
 
 networks:
