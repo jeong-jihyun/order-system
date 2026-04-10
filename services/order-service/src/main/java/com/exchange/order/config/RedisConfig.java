@@ -25,6 +25,10 @@ public class RedisConfig {
                 .serializeValuesWith(RedisSerializationContext.SerializationPair
                         .fromSerializer(new GenericJackson2JsonRedisSerializer()));
 
-        return RedisCacheManager.builder(factory).cacheDefaults(config).build();
+        return RedisCacheManager.builder(factory).cacheDefaults(config).
+        withCacheConfiguration("orders",             // "orders" 캐시만 개별 설정
+                config.entryTtl(Duration.ofMinutes(5)))
+        .withCacheConfiguration("products",           // "products" 캐시만 개별 설정
+                config.entryTtl(Duration.ofMinutes(30))).build();
     }
 }
