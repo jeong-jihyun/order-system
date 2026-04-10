@@ -38,7 +38,7 @@ market:
   redis:
     ticker-prefix: "ticker:"           # ticker:{symbol} → 현재 시세 Hash
     ohlcv-prefix: "ohlcv:"             # ohlcv:{symbol}:{interval} → ZSet
-    ticker-ttl-seconds: 300            # 5분 TTL
+    ticker-ttl-seconds: 86400          # 24시간 TTL
   websocket:
     topic-prefix: "/topic/ticker/"     # 클라이언트 구독 경로
   kafka:
