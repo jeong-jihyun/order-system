@@ -156,7 +156,6 @@ pipeline {
                                 docker build \
                                   --build-arg SERVICE_DIR=${s} \
                                   --build-arg JAR_NAME=${s} \
-                                  --cache-from ${REGISTRY}/${PROJECT}/${s}:latest \
                                   -f docker/Dockerfile.runtime \
                                   -t ${REGISTRY}/${PROJECT}/${s}:${IMAGE_TAG} \
                                   -t ${REGISTRY}/${PROJECT}/${s}:latest \
