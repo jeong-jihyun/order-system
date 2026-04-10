@@ -191,8 +191,10 @@ pipeline {
                         exchange-account-service exchange-market-data \
                         exchange-trading-engine exchange-settlement-service \
                         2>/dev/null || true
-                """                // Kafka/Zookeeper 볼륨 제거 — ClusterID 불일치 방지 (InconsistentClusterIdException)
-                sh "docker volume rm exchange_kafka-data exchange_zookeeper-data 2>/dev/null || true"                sh """
+                """
+                // Kafka/Zookeeper 볼륨 제거 — ClusterID 불일치 방지 (InconsistentClusterIdException)
+                sh "docker volume rm exchange_kafka-data exchange_zookeeper-data 2>/dev/null || true"
+                sh """
                     docker compose -p ${COMPOSE_P} up -d \
                         mysql redis zookeeper kafka kafdrop
                 """
