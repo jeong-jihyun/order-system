@@ -1,0 +1,34 @@
+# ============================================================
+# 경량 런타임 전용 Dockerfile (외부 빌드 JAR 사용)
+# 사용법:
+#   1. 먼저 로컬에서 JAR 빌드: ./gradlew :services:{SERVICE_DIR}:bootJar -x test
+#   2. docker compose up -d --build
+#
+# docker-compose.yml args:
+#   SERVICE_DIR: order-service  (서비스 디렉터리명)
+#   JAR_NAME:    order-service  (JAR 파일명 prefix)
+# ============================================================
+
+FROM eclipse-temurin:17-jre-alpine
+
+ARG SERVICE_DIR
+ARG JAR_NAME
+
+# non-root 보안 사용자
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+WORKDIR /app
+
+# 로컬에서 미리 빌드된 JAR만 복사 (plain.jar 제외)
+COPY services/${SERVICE_DIR}/build/libs/ /tmp/libs/
+RUN find /tmp/libs -name "*.jar" ! -name "*plain*" -exec cp {} app.jar \; && rm -rf /tmp/libs
+
+RUN chown appuser:appgroup app.jar
+
+USER appuser
+
+ENTRYPOINT ["java", \
+    "-XX:+UseContainerSupport", \
+    "-XX:MaxRAMPercentage=75.0", \
+    "-Djava.security.egd=file:/dev/./urandom", \
+    "-jar", "app.jar"]

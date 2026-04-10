@@ -5,7 +5,7 @@
 //   1. Build&Test: ���񽺺� Gradle 6ȸ �� 1ȸ ���� ���� (--parallel)
 //   2. JAR Build:  bootJar�� 1ȸ ���� ����
 //   3. Docker:     BuildKit(DOCKER_BUILDKIT=1) Ȱ��ȭ ? ���̾� ĳ�� Ȱ��
-//   4. MySQL ���: -p exchange �÷��� �߰� (�ùٸ� �����̳� ����)
+//   4. MySQL ���? -p exchange �÷��� �߰� (�ùٸ� �����̳� ����)
 //   5. Health Check: services.each ���� �� parallel ���� Ȯ��
 // ============================================================
 pipeline {
@@ -47,7 +47,7 @@ pipeline {
             }
         }
 
-        // �� ���� �׽�Ʈ ? JVM 1ȸ �⵿, ���� ��� �ߺ� ������ ����
+        // �� ���� �׽�Ʈ ? JVM 1ȸ �⵿, ���� ���?�ߺ� ������ ����
         stage('Build & Test') {
             steps {
                 sh '''
@@ -99,7 +99,7 @@ pipeline {
                               --build-arg SERVICE_DIR=api-gateway \
                               --build-arg JAR_NAME=api-gateway \
                               --cache-from ${REGISTRY}/${PROJECT}/api-gateway:latest \
-                              -f docker/Dockerfile \
+                              -f docker/Dockerfile.runtime \
                               -t ${REGISTRY}/${PROJECT}/api-gateway:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/api-gateway:latest \
                               .
@@ -113,7 +113,7 @@ pipeline {
                               --build-arg SERVICE_DIR=order-service \
                               --build-arg JAR_NAME=order-service \
                               --cache-from ${REGISTRY}/${PROJECT}/order-service:latest \
-                              -f docker/Dockerfile \
+                              -f docker/Dockerfile.runtime \
                               -t ${REGISTRY}/${PROJECT}/order-service:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/order-service:latest \
                               .
@@ -127,7 +127,7 @@ pipeline {
                               --build-arg SERVICE_DIR=account-service \
                               --build-arg JAR_NAME=account-service \
                               --cache-from ${REGISTRY}/${PROJECT}/account-service:latest \
-                              -f docker/Dockerfile \
+                              -f docker/Dockerfile.runtime \
                               -t ${REGISTRY}/${PROJECT}/account-service:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/account-service:latest \
                               .
@@ -141,7 +141,7 @@ pipeline {
                               --build-arg SERVICE_DIR=market-data-service \
                               --build-arg JAR_NAME=market-data-service \
                               --cache-from ${REGISTRY}/${PROJECT}/market-data-service:latest \
-                              -f docker/Dockerfile \
+                              -f docker/Dockerfile.runtime \
                               -t ${REGISTRY}/${PROJECT}/market-data-service:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/market-data-service:latest \
                               .
@@ -155,7 +155,7 @@ pipeline {
                               --build-arg SERVICE_DIR=trading-engine \
                               --build-arg JAR_NAME=trading-engine \
                               --cache-from ${REGISTRY}/${PROJECT}/trading-engine:latest \
-                              -f docker/Dockerfile \
+                              -f docker/Dockerfile.runtime \
                               -t ${REGISTRY}/${PROJECT}/trading-engine:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/trading-engine:latest \
                               .
@@ -169,7 +169,7 @@ pipeline {
                               --build-arg SERVICE_DIR=settlement-service \
                               --build-arg JAR_NAME=settlement-service \
                               --cache-from ${REGISTRY}/${PROJECT}/settlement-service:latest \
-                              -f docker/Dockerfile \
+                              -f docker/Dockerfile.runtime \
                               -t ${REGISTRY}/${PROJECT}/settlement-service:${IMAGE_TAG} \
                               -t ${REGISTRY}/${PROJECT}/settlement-service:latest \
                               .
@@ -191,8 +191,8 @@ pipeline {
                         exchange-trading-engine exchange-settlement-service \
                         2>/dev/null || true
                 """
-                // Kafka/Zookeeper 볼륨 제거 — ClusterID 불일치 방지 (InconsistentClusterIdException)
-                // zookeeper-data/log도 함께 삭제해야 kafka-data와 ClusterID가 일치
+                // Kafka/Zookeeper 볼륨 ?�거 ??ClusterID 불일�?방�? (InconsistentClusterIdException)
+                // zookeeper-data/log???�께 ??��?�야 kafka-data?� ClusterID가 ?�치
                 sh "docker volume rm exchange_kafka-data exchange_zookeeper-data exchange_zookeeper-log 2>/dev/null; true"
                 sh """
                     docker compose -p ${COMPOSE_P} up -d \
@@ -203,7 +203,7 @@ pipeline {
                         docker compose -p ${COMPOSE_P} exec -T mysql \
                             mysqladmin ping -uroot -ppassword --silent 2>/dev/null \
                             && echo "MySQL Ready" && break
-                        echo "MySQL ��� ��... (\$i/12)"
+                        echo "MySQL ���?��... (\$i/12)"
                         sleep 5
                     done
                 """
@@ -239,7 +239,7 @@ pipeline {
             steps {
                 script {
                     def checks = [:]
-                    // key = 실제 컨테이너명 접미사(exchange-{key}), value = 포트
+                    // key = ?�제 컨테?�너�??��???exchange-{key}), value = ?�트
                     def services = [
                         'api-gateway':     8080,
                         'order-service':   8081,
@@ -256,7 +256,7 @@ pipeline {
                                 sleep(time: 10, unit: 'SECONDS')
                                 sh "curl -sf http://exchange-${svcName}:${svcPort}/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
                             }
-                            echo "${svcName} 헬스체크 통과"
+                            echo "${svcName} ?�스체크 ?�과"
                         }
                     }
                     parallel checks
