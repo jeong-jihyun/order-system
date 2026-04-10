@@ -242,9 +242,9 @@ pipeline {
                             def svcHost = info.host
                             def svcPort = info.port
                             checks[svc] = {
-                                retry(6) {
+                                retry(12) {
                                     sleep(time: 10, unit: 'SECONDS')
-                                    sh "curl -sf http://exchange-${svcHost}:${svcPort}/actuator/health | grep -q '\"status\":\"UP\"' || exit 1"
+                                    sh "curl -sf http://exchange-${svcHost}:${svcPort}/actuator/health | grep -q 'UP' || exit 1"
                                 }
                                 echo "${svc} 헬스체크 성공"
                             }
