@@ -53,7 +53,6 @@ const AppLayout = () => {
     <Box sx={{ minHeight: '100vh', bgcolor: 'background.default' }}>
       <AppBar position="sticky" sx={{ bgcolor: '#1e222d', boxShadow: '0 1px 0 #2a2e39' }}>
         <Toolbar sx={{ maxWidth: 1400, width: '100%', mx: 'auto', px: 2, gap: 2 }}>
-          <AccountBalanceIcon sx={{ color: '#2962ff', mr: 1 }} />
           <Typography
             component={Link}
             to="/"
@@ -67,7 +66,7 @@ const AppLayout = () => {
               whiteSpace: 'nowrap',
             }}
           >
-            Exchange System
+            가상 증권 거래서
           </Typography>
 
           <Tabs
