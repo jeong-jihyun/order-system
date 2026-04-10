@@ -181,7 +181,18 @@
 
 > 목표: Redis 캐싱 전략과 Kafka Producer/Consumer를 직접 구현하고 동작을 확인한다
 
-### 🔲 Day 8 (04/13) — Redis @Cacheable / @CacheEvict 직접 작성
+### ✅ Day 8 (04/10 완료) — Redis @Cacheable / @CacheEvict 직접 작성
+
+**학습 내용:**
+- 캐시 필요성: DB 쿼리 1000번 → Redis 1번으로 해결
+- Redis 개념: 메모리 기반 Key-Value (1ms 이하), Key = `"orders::1"`, Value = JSON
+- `@EnableCaching`: 캐시 기능 전원 ON. 없으면 나머지 어노테이션 모두 무시됨
+- `@Cacheable(value, key)`: 캐시 히트 시 메서드 실행 건너뜀, 미스 시 DB 조회 후 저장
+- `@CacheEvict(value, key)`: 수정/삭제 후 캐시 무효화 (CQRS — CommandService에서 처리)
+- AOP 프록시 함정: `this.` 내부 호출은 캐시 무시 → 클래스 분리(CQRS)로 해결
+- Cache-Aside 패턴: 프로젝트에서 사용하는 전략
+
+**학습 노트:** [docs/day8_redis_cache.md](docs/day8_redis_cache.md)
 ### 🔲 Day 9 (04/14) — Redis TTL 설정 + Cache-Aside 패턴 실습
 ### 🔲 Day 10 (04/15) — Kafka Producer 직접 작성 + 파티션/직렬화 이해
 ### 🔲 Day 11 (04/16) — Kafka Consumer 직접 작성 + DLQ 개념
@@ -224,7 +235,7 @@
 | 주차 | 완료 | 전체 | 진행률 |
 |------|------|------|--------|
 | Week 1 | 7 | 7 | 100% ✅ |
-| Week 2 | 0 | 7 | 0% |
+| Week 2 | 1 | 7 | 14% |
 | Week 3 | 0 | 7 | 0% |
 | Week 4 | 0 | 7 | 0% |
-| **전체** | **7** | **28** | **25%** |
+| **전체** | **8** | **28** | **29%** |
