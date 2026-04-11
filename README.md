@@ -213,7 +213,12 @@ docker compose down -v
 | 서비스 | URL | 설명 |
 |--------|-----|------|
 | 프론트엔드 | http://localhost:3000 | 주문 목록 / 등록 화면 |
-| Swagger UI | http://localhost:8080/swagger-ui.html | API 테스트 |
+| API Gateway (라우팅 허브) | http://localhost:8080 | 프론트 → 각 서비스 라우팅 (Swagger 미지원) |
+| Swagger UI (Order Service) | http://localhost:8081/swagger-ui/index.html | 주문 API 테스트 |
+| Swagger UI (Account Service) | http://localhost:8082/swagger-ui/index.html | 계좌 API 테스트 |
+| Swagger UI (Market Data Service) | http://localhost:8083/swagger-ui/index.html | 시세 API 테스트 |
+| Swagger UI (Trading Engine) | http://localhost:8084/swagger-ui/index.html | 체결 엔진 API 테스트 |
+| Swagger UI (Settlement Service) | http://localhost:8085/swagger-ui/index.html | 정산 API 테스트 |
 | Kafdrop | http://localhost:9000 | Kafka 토픽/메시지 확인 |
 | Jenkins | http://localhost:8090 | CI/CD 파이프라인 관리 |
 
@@ -433,7 +438,7 @@ npm run build
 
 ## 10. API 명세
 
-> 상세 명세는 Swagger UI: http://localhost:8080/swagger-ui.html
+> 상세 명세는 Swagger UI: http://localhost:8081/swagger-ui/index.html
 
 | Method | URL | 설명 |
 |--------|-----|------|
@@ -733,7 +738,7 @@ order-zookeeper   Up                        2181/tcp
 
 #### 동작 확인 — 주문 생성 → Kafka 이벤트 흐름
 
-Swagger UI(`http://localhost:8080/swagger-ui.html`)에서 `POST /api/orders` 테스트 후  
+Swagger UI(`http://localhost:8081/swagger-ui/index.html`)에서 `POST /api/orders` 테스트 후  
 Spring 로그에서 전체 흐름 확인:
 
 ```log

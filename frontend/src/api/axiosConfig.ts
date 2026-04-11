@@ -19,6 +19,19 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
+// 모든 POST/PUT 요청의 body를 JSON.stringify로 강제 직렬화
+apiClient.interceptors.request.use((config) => {
+  if (
+    config.data &&
+    (config.method === 'post' || config.method === 'put' || config.method === 'patch') &&
+    config.headers['Content-Type'] === 'application/json' &&
+    typeof config.data !== 'string'
+  ) {
+    config.data = JSON.stringify(config.data)
+  }
+  return config
+})
+
 // 응답 인터셉터 — API 레벨 오류 처리 + 401 시 로그인 페이지로 이동
 apiClient.interceptors.response.use(
   (response) => response,
