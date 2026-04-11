@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
  * Entity와 분리하여 외부 의존성 없이 직렬화 가능하게 설계.
  */
 @Getter
+@Setter
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor

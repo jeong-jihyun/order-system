@@ -32,7 +32,9 @@ services:
     ports:
       - "3306:3306"
     networks:
-      - exchange-net
+      exchange-net:
+        aliases:
+          - mysql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-uroot", "-ppassword"]
       interval: 10s
