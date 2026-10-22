@@ -33,6 +33,40 @@
 
 ---
 
+## 현재 구성 (2026-10 점검 기준)
+
+> 아래 4장의 구조도는 초기(Day 1) 모습입니다. 저장소는 그 뒤로 **마이크로서비스 구조**로 커졌고, 실제 구성은 이 표를 기준으로 보세요.
+
+| 위치 | 역할 (코드·설정에서 확인한 내용) |
+| --- | --- |
+| `backend/` | 처음 만든 단일 서버(모놀리식). `settings.gradle.kts`에 "order-service로 이전 후 제거 예정"이라고 적혀 있음 |
+| `services/order-service` | 주문 API (`OrderController`) |
+| `services/account-service` | 로그인·회원가입(`AuthController`), 계좌(`AccountController`), 보유 종목(`HoldingController`) |
+| `services/market-data-service` | 시세 조회 REST + WebSocket |
+| `services/trading-engine` | 호가창(`OrderBookController`) |
+| `services/settlement-service` | 정산 (`SettlementController`) |
+| `services/api-gateway` | 서비스들 앞의 관문, 장애 시 대체 응답(`FallbackController`) |
+| `shared/common-lib` | 서비스 공통 코드 |
+| `frontend/` | React + TypeScript + Vite. 화면 9개: 로그인, 회원가입, 주문 목록·등록, 호가창, 시세, 계좌, 포트폴리오, 정산 |
+| `docker-compose.yml` | mysql, redis, zookeeper, kafka, kafdrop, 위 서비스 6개, jenkins, frontend |
+| `docs/`, `bug/`, `STUDY_PLAN.md` | 학습 노트, 분석 보고서, 스터디 계획 |
+| `scripts/` | 코드·문서를 단계별로 만들어 주던 파이썬 스크립트 (`generate_phase0~6.py`) |
+
+> 개발용 기본 비밀번호(`password`, `orderpassword`)와 JWT 비밀키 기본값이 `docker-compose.yml`, 각 `application.yml`에 들어 있습니다. **개발용 값이므로 운영 환경에서는 반드시 환경변수로 바꿔 주세요.**
+
+### 개선 내역 (2026-10)
+
+| 구분 | 문제 | 수정 내용 |
+| --- | --- | --- |
+| 빌드 오류 | `frontend/src/App.tsx`에서 쓰지 않는 `AccountBalanceIcon`을 불러와 `npm run build`(`tsc`)가 `TS6133`으로 실패 | 해당 import 삭제 → `npm ci`, `npm run build` 성공 확인 |
+| README | 4장 구조도가 초기 모습이라 마이크로서비스 구성이 빠져 있었음 | 위 "현재 구성" 표 추가 |
+
+### 확인하지 못한 것
+
+이 작업 환경에서는 Maven Central과 Docker 데몬을 쓸 수 없어 **백엔드 Gradle 빌드, 서비스 실행, `docker compose` 구동은 확인하지 못했습니다.** 프론트엔드는 `npm ci` + `npm run build`까지 확인했습니다.
+
+---
+
 ## 2. 기술 스택
 
 ### 백엔드
